@@ -11,8 +11,28 @@ import { googleAuthCallback } from "../controllers/googleAuthController.js";
 const router = express.Router();
 
 router.post("/google", googleAuth);
-router.get('/google/callback', googleAuthCallback); // For OAuth code exchange
+router.post('/google/callback', googleAuthCallback); // For OAuth code exchange
 
+// ✅ Add GET route for OAuth redirect
+router.get('/google/callback', async (req, res) => {
+  try {
+    // Extract the query parameters Google sends
+    const { code, state } = req.query;
+
+    // Forward to your existing controller logic
+    // Simulate POST body
+    req.body = {
+      code,
+      redirectUri: 'https://workisready-backend-production-5f8d.up.railway.app/api/auth/google/callback',
+    };
+
+    // Call existing controller
+    await googleAuthCallback(req, res);
+  } catch (err) {
+    console.error('GET /google/callback error:', err);
+    res.status(500).json({ success: false, message: 'OAuth GET callback failed' });
+  }
+});
 
 // Register user
 router.post("/register", async (req, res) => {
