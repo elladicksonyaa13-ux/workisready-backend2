@@ -11,7 +11,7 @@ import { googleAuthCallback } from "../controllers/googleAuthController.js";
 const router = express.Router();
 
 router.post("/google", googleAuth);
-router.post('/google/callback', googleAuthCallback); // For OAuth code exchange
+router.get('/google/callback', googleAuthCallback); // For OAuth code exchange
 
 
 // Register user
