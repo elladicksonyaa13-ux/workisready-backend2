@@ -32,10 +32,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Middleware
+const allowedOrigins = [
+  process.env.BASE_URL,           // localhost:5173
+  "http://localhost:5173",        // Vite
+  "http://localhost:5174",        // alt Vite
+  "http://10.0.2.2:5173",         // Android emulator → web
+  "http://10.0.2.2:5000",         // Android emulator → backend
+  "http://localhost",             // RN iOS
+].filter(Boolean);
+
 app.use(cors({
-  origin: [`${BASE_URL}`, "http://localhost:5174" || "http://10.0.2.2:5000"],
+  origin: (origin, callback) => {
+    // Allow server-to-server & mobile apps (no origin header)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn("Blocked by CORS:", origin);
+    callback(new Error("Not allowed by CORS"));
+  },
   credentials: true,
 }));
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
