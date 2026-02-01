@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema(
-   {
+  {
+    // Basic Information
     name: {
       type: String,
       required: true,
@@ -30,11 +31,26 @@ const userSchema = new mongoose.Schema(
     password: {
       type: String,
       required: function () {
-        return this.authProvider !== "google";
+        // Password is required only for local auth, not for Google OAuth
+        return this.authProvider === "local" || !this.authProvider;
       },
       minlength: 6,
       select: false,
     },
+    
+    // Google OAuth Fields (ADD THESE)
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true, // Allows null values while maintaining uniqueness
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google", "facebook"], // Add more as needed
+      default: "local",
+    },
+    
+    // Contact Information
     phone: {
       type: String,
       default: "",
@@ -51,11 +67,15 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    
+    // User Type
     userType: {
       type: String,
       enum: ["client", "worker"],
       default: "client",
     },
+    
+    // Profile Image
     profileImage: {
       type: String,
       default: "",
@@ -87,9 +107,11 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Password Reset
     resetToken: String,
     resetTokenExpiry: Date,
 
+    // Ratings
     averageRating: {
       type: Number,
       default: 0,
@@ -99,6 +121,7 @@ const userSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // Role
     role: {
       type: String,
       enum: ["user", "admin"],
@@ -110,22 +133,27 @@ const userSchema = new mongoose.Schema(
 
 /* 🔐 HASH PASSWORD BEFORE SAVE */
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-
-  // ✅ Prevent double hashing
-  if (this.skipPasswordHashing) {
-    this.skipPasswordHashing = false;
+  // Skip password hashing for Google OAuth users or if password is not modified
+  if (!this.isModified("password") || this.authProvider !== "local") {
     return next();
   }
 
-  const salt = await bcrypt.genSalt(12);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
+  try {
+    const salt = await bcrypt.genSalt(12);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
 });
 
 /* 🔑 COMPARE PASSWORD */
 userSchema.methods.comparePassword = async function (enteredPassword) {
-  return bcrypt.compare(enteredPassword, this.password);
+  // If user is Google OAuth and doesn't have a password, return false
+  if (this.authProvider !== "local" || !this.password) {
+    return false;
+  }
+  return await bcrypt.compare(enteredPassword, this.password);
 };
 
 /* 🧼 SAFE RESPONSE */
@@ -134,7 +162,13 @@ userSchema.methods.toSafeObject = function () {
   delete obj.password;
   delete obj.resetToken;
   delete obj.resetTokenExpiry;
+  delete obj.googleId; // Optional: remove for privacy
   return obj;
 };
+
+// Add indexes for better performance
+userSchema.index({ email: 1 });
+userSchema.index({ googleId: 1 });
+userSchema.index({ authProvider: 1 });
 
 export default mongoose.model("User", userSchema);
