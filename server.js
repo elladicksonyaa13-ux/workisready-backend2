@@ -39,6 +39,8 @@ const allowedOrigins = [
   "http://10.0.2.2:5173",         // Android emulator → web
   "http://10.0.2.2:5000",         // Android emulator → backend
   "http://localhost",             // RN iOS
+  "https://africamails.com",          // Your frontend domain
+  "https://www.africamails.com",      // WWW version
 ].filter(Boolean);
 
 app.use(cors({
