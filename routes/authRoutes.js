@@ -243,13 +243,13 @@ router.post("/login", async (req, res) => {
 });
 
 // ✅ UPDATE REGISTRATION TO SEND VERIFICATION EMAIL
+// In your authRoutes.js, update the registration endpoint:
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
     console.log("📝 Registration attempt for:", email);
 
-    // Validation...
     if (!name || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -276,7 +276,7 @@ router.post("/register", async (req, res) => {
     const emailVerificationToken = crypto.randomBytes(32).toString("hex");
     const emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
 
-    // Create user
+    // Create user (WITHOUT SENDING EMAIL IN THE MAIN THREAD)
     const user = new User({
       name,
       email,
@@ -284,72 +284,76 @@ router.post("/register", async (req, res) => {
       emailVerificationToken,
       emailVerificationExpires,
       isEmailVerified: false,
-      isApproved: false, // Admin approval still separate
+      isApproved: false,
     });
 
     await user.save();
     console.log("✅ User created:", user._id);
 
-    // Send verification email
-    try {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      });
+    // ✅ FIX: Send email ASYNCHRONOUSLY (don't wait for it)
+    setTimeout(async () => {
+      try {
+        const transporter = nodemailer.createTransport({
+          service: "gmail",
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
+          },
+        });
 
-      const verificationUrl = `${process.env.FRONTEND_URL || process.env.BASE_URL}/verify-email/${emailVerificationToken}`;
+        const verificationUrl = `${process.env.FRONTEND_URL || process.env.BASE_URL}/verify-email/${emailVerificationToken}`;
 
-      await transporter.sendMail({
-        from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "Verify Your WorkisReady Account",
-        html: `
-          <div style="font-family: Arial, sans-serif;">
-            <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
-            <p>Please verify your email address by clicking the link below:</p>
-            <a href="${verificationUrl}" 
-               style="background-color: #0099CC; color: white; padding: 10px 20px; 
-                      text-decoration: none; border-radius: 5px;">
-              Verify Email Address
-            </a>
-            <p>Link: ${verificationUrl}</p>
-            <p>This link expires in 24 hours.</p>
-          </div>
-        `,
-      });
-      
-      console.log("✅ Verification email sent to:", email);
-    } catch (emailError) {
-      console.error("❌ Failed to send verification email:", emailError);
-      // Don't fail registration if email fails, just log it
-    }
+        await transporter.sendMail({
+          from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
+          to: email,
+          subject: "Verify Your WorkisReady Account",
+          html: `
+            <div style="font-family: Arial, sans-serif;">
+              <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
+              <p>Please verify your email address by clicking the link below:</p>
+              <a href="${verificationUrl}" 
+                 style="background-color: #0099CC; color: white; padding: 10px 20px; 
+                        text-decoration: none; border-radius: 5px;">
+                Verify Email Address
+              </a>
+              <p>Link: ${verificationUrl}</p>
+              <p>This link expires in 24 hours.</p>
+            </div>
+          `,
+        });
+        
+        console.log("✅ Verification email sent to:", email);
+      } catch (emailError) {
+        console.error("❌ Failed to send verification email:", emailError);
+        // Log but don't fail registration
+      }
+    }, 100); // Small delay to ensure response is sent first
 
-    // Generate JWT (optional, for auto-login)
+    // Generate JWT for immediate login
     const token = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
+    // Format user response
+    const userResponse = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      isEmailVerified: false,
+      isApproved: false,
+      emailVerified: false,
+      adminVerified: false,
+      profileComplete: false,
+    };
+
     res.status(201).json({
-  success: true,
-  message: "Registration successful! Please check your email to verify your account.",
-  user: {
-    id: user._id,
-    name: user.name,
-    email: user.email,
-    isEmailVerified: false,
-    isApproved: false,
-    // ✅ ADD FOR FRONTEND COMPATIBILITY:
-    emailVerified: false,
-    adminVerified: false,
-    profileComplete: false,
-  },
-  token: token,
-});
+      success: true,
+      message: "Registration successful! Please check your email to verify your account.",
+      user: userResponse,
+      token: token, // Include token for auto-login
+    });
 
   } catch (error) {
     console.error("❌ Registration error:", error);
