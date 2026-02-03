@@ -22,11 +22,10 @@ router.get("/", adminAuth, async (req, res) => {
 });
 
 // ==============================
-// ✅ CREATE USER (ADMIN)
+// ✅ CREATE USER (ADMIN) - UPDATED
 // ==============================
 router.post("/", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Creating user by admin:", req.admin.email);
 
     const { name, email, password, phone, whatsapp, userType } = req.body;
@@ -37,7 +36,7 @@ router.post("/", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "User already exists" });
     }
 
-    // Create new user (automatically approved if created by admin)
+    // Create new user (automatically approved AND email verified if created by admin)
     const newUser = new User({
       name,
       email,
@@ -46,12 +45,12 @@ router.post("/", adminAuth, async (req, res) => {
       whatsapp,
       userType: userType || "client",
       isApproved: true, // Admin-created users are automatically approved
+      isEmailVerified: true, // Add this line
       lastApprovedAt: new Date()
     });
 
     await newUser.save();
 
-    // Remove password from response
     const userResponse = newUser.toObject();
     delete userResponse.password;
 
@@ -66,12 +65,12 @@ router.post("/", adminAuth, async (req, res) => {
   }
 });
 
+
 // ==============================
-// ✅ APPROVE USER ACCOUNT
+// ✅ APPROVE USER ACCOUNT - UPDATED
 // ==============================
 router.patch("/:id/approve", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Approving user by admin:", req.admin.email);
 
     const user = await User.findById(req.params.id);
@@ -79,15 +78,17 @@ router.patch("/:id/approve", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Update approval status
+    // ✅ UPDATE BOTH FIELDS
     user.isApproved = true;
+    user.isEmailVerified = true; // Add this line
     user.lastApprovedAt = new Date();
-    user.hasPendingChanges = false; // Clear any pending changes when approving account
+    user.hasPendingChanges = false;
     user.pendingProfileData = null;
+    user.emailVerificationToken = undefined; // Clear verification token
+    user.emailVerificationExpires = undefined; // Clear expiry
     
     await user.save();
 
-    // Remove password from response
     const userResponse = user.toObject();
     delete userResponse.password;
 
@@ -101,7 +102,6 @@ router.patch("/:id/approve", adminAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 // ==============================
 // ✅ DISAPPROVE USER ACCOUNT
 // ==============================
@@ -245,11 +245,10 @@ router.patch("/:id/reject-changes", adminAuth, async (req, res) => {
 });
 
 // ==============================
-// ✅ BULK APPROVE USERS
+// ✅ BULK APPROVE USERS - UPDATED
 // ==============================
 router.patch("/bulk-approve", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Bulk approve by admin:", req.admin.email);
 
     const { ids } = req.body;
@@ -264,10 +263,13 @@ router.patch("/bulk-approve", adminAuth, async (req, res) => {
       { 
         $set: { 
           isApproved: true,
+          isEmailVerified: true, // Add this line
           lastApprovedAt: new Date(),
           hasPendingChanges: false,
           pendingProfileData: null,
-          pendingChangesSubmittedAt: null
+          pendingChangesSubmittedAt: null,
+          emailVerificationToken: undefined, // Clear verification token
+          emailVerificationExpires: undefined // Clear expiry
         }
       }
     );
