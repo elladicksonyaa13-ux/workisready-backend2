@@ -80,6 +80,20 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+
+    // Email Verification Fields
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationToken: {
+      type: String,
+      default: null,
+    },
+    emailVerificationExpires: {
+      type: Date,
+      default: null,
+    },
     
     // Approval System Fields
     isApproved: {
