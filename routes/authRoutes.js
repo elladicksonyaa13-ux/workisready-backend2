@@ -37,9 +37,11 @@ router.get('/google/callback', async (req, res) => {
 });
 
 // ✅ EMAIL VERIFICATION ENDPOINT
+// In authRoutes.js
 router.get("/verify-email/:token", async (req, res) => {
   try {
     const { token } = req.params;
+    const { redirect } = req.query; // Optional: redirect to frontend after verification
 
     const user = await User.findOne({
       emailVerificationToken: token,
@@ -47,19 +49,18 @@ router.get("/verify-email/:token", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired verification token",
-      });
+      // If frontend is specified, redirect there with error
+      if (redirect === "frontend" && process.env.FRONTEND_URL) {
+        return res.redirect(`${process.env.FRONTEND_URL}/verify-email/error?message=Invalid+token`);
+      }
+      return sendVerificationHtml(res, false, "Invalid or expired verification token");
     }
 
-    // Mark email as verified
+    // Mark as verified
     user.isEmailVerified = true;
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
     
-    // If admin already approved or both verifications are enabled
-    // You might want to auto-approve if email is verified
     if (user.isApproved || process.env.AUTO_APPROVE_ON_EMAIL_VERIFY === "true") {
       user.isApproved = true;
       user.lastApprovedAt = new Date();
@@ -67,27 +68,87 @@ router.get("/verify-email/:token", async (req, res) => {
 
     await user.save();
 
-    res.json({
-  success: true,
-  message: "Email verified successfully! You can now log in.",
-  user: {
-    id: user._id,
-    email: user.email,
-    isEmailVerified: user.isEmailVerified,
-    isApproved: user.isApproved,
-    // ✅ ADD FOR FRONTEND COMPATIBILITY:
-    emailVerified: user.isEmailVerified,
-    adminVerified: user.isApproved,
-  },
-});
+    // If frontend is specified AND frontend URL is configured, redirect there
+    if (redirect === "frontend" && process.env.FRONTEND_URL && process.env.FRONTEND_URL !== "http://localhost:5173") {
+      return res.redirect(`${process.env.FRONTEND_URL}/verify-email/success`);
+    }
+
+    // Otherwise show HTML success page (for now)
+    return sendVerificationHtml(res, true, user);
+
   } catch (error) {
     console.error("Email verification error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error during email verification",
-    });
+    
+    if (redirect === "frontend" && process.env.FRONTEND_URL) {
+      return res.redirect(`${process.env.FRONTEND_URL}/verify-email/error?message=Server+error`);
+    }
+    
+    return sendVerificationHtml(res, false, "Server error during verification");
   }
 });
+
+// Helper function for HTML responses
+const sendVerificationHtml = (res, success, data) => {
+  if (success) {
+    const user = data;
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Email Verified - WorkisReady</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+          // If frontend is live, try to redirect after 3 seconds
+          setTimeout(() => {
+            const frontendUrl = "${process.env.FRONTEND_URL}";
+            if (frontendUrl && !frontendUrl.includes('localhost')) {
+              window.location.href = frontendUrl + '/verify-email/success';
+            }
+          }, 3000);
+        </script>
+        <style>
+          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+          .success { color: green; }
+          .button { 
+            background: #0099CC; 
+            color: white; 
+            padding: 12px 24px; 
+            text-decoration: none; 
+            border-radius: 8px;
+            display: inline-block;
+            margin: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1 class="success">✅ Email Verified Successfully!</h1>
+        <p>Your email: ${user.email}</p>
+        <p>You can now log in to your account.</p>
+        
+        ${process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost') ? 
+          `<p>Redirecting to main site in 3 seconds...</p>` : 
+          `<a href="/" class="button">Return to WorkisReady</a>`
+        }
+      </body>
+      </html>
+    `);
+  } else {
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+        <h1 style="color: red;">❌ Verification Failed</h1>
+        <p>${data}</p>
+        ${process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost') ? 
+          `<a href="${process.env.FRONTEND_URL}" class="button">Go to Main Site</a>` : 
+          `<a href="/" class="button">Return to WorkisReady</a>`
+        }
+      </body>
+      </html>
+    `);
+  }
+};
 
 // ✅ RESEND VERIFICATION EMAIL
 router.post("/resend-verification", async (req, res) => {
@@ -133,7 +194,7 @@ router.post("/resend-verification", async (req, res) => {
       },
     });
 
-    const verificationUrl = `${process.env.FRONTEND_URL || process.env.BASE_URL}/verify-email/${emailVerificationToken}`;
+    const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${emailVerificationToken}`;
 
     await transporter.sendMail({
       from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
@@ -243,7 +304,6 @@ router.post("/login", async (req, res) => {
 });
 
 // ✅ UPDATE REGISTRATION TO SEND VERIFICATION EMAIL
-// In your authRoutes.js, update the registration endpoint:
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -276,7 +336,7 @@ router.post("/register", async (req, res) => {
     const emailVerificationToken = crypto.randomBytes(32).toString("hex");
     const emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
 
-    // Create user (WITHOUT SENDING EMAIL IN THE MAIN THREAD)
+    // Create user
     const user = new User({
       name,
       email,
@@ -290,7 +350,11 @@ router.post("/register", async (req, res) => {
     await user.save();
     console.log("✅ User created:", user._id);
 
-    // ✅ FIX: Send email ASYNCHRONOUSLY (don't wait for it)
+    // ✅ FIXED: Use API_URL instead of FRONTEND_URL
+    const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${emailVerificationToken}`;
+    console.log("🔗 Verification URL:", verificationUrl);
+
+    // Send email asynchronously
     setTimeout(async () => {
       try {
         const transporter = nodemailer.createTransport({
@@ -301,23 +365,27 @@ router.post("/register", async (req, res) => {
           },
         });
 
-        const verificationUrl = `${process.env.FRONTEND_URL || process.env.BASE_URL}/verify-email/${emailVerificationToken}`;
-
         await transporter.sendMail({
           from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
           to: email,
           subject: "Verify Your WorkisReady Account",
           html: `
-            <div style="font-family: Arial, sans-serif;">
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
-              <p>Please verify your email address by clicking the link below:</p>
-              <a href="${verificationUrl}" 
-                 style="background-color: #0099CC; color: white; padding: 10px 20px; 
-                        text-decoration: none; border-radius: 5px;">
-                Verify Email Address
-              </a>
-              <p>Link: ${verificationUrl}</p>
-              <p>This link expires in 24 hours.</p>
+              <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${verificationUrl}" 
+                   style="background-color: #0099CC; color: white; padding: 12px 24px; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold;">
+                  Verify Email Address
+                </a>
+              </div>
+              <p>Or copy and paste this link in your browser:</p>
+              <p style="word-break: break-all; color: #666; background: #f5f5f5; padding: 10px; border-radius: 4px;">
+                ${verificationUrl}
+              </p>
+              <p>This verification link will expire in 24 hours.</p>
+              <p>If you didn't create an account with WorkisReady, please ignore this email.</p>
             </div>
           `,
         });
@@ -325,18 +393,16 @@ router.post("/register", async (req, res) => {
         console.log("✅ Verification email sent to:", email);
       } catch (emailError) {
         console.error("❌ Failed to send verification email:", emailError);
-        // Log but don't fail registration
       }
-    }, 100); // Small delay to ensure response is sent first
+    }, 100);
 
-    // Generate JWT for immediate login
+    // Generate JWT
     const token = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // Format user response
     const userResponse = {
       id: user._id,
       name: user.name,
@@ -352,7 +418,9 @@ router.post("/register", async (req, res) => {
       success: true,
       message: "Registration successful! Please check your email to verify your account.",
       user: userResponse,
-      token: token, // Include token for auto-login
+      token: token,
+      // Include direct link in response for debugging
+      verificationLink: verificationUrl,
     });
 
   } catch (error) {
