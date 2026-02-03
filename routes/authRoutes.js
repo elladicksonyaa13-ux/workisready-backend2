@@ -214,18 +214,22 @@ router.post("/login", async (req, res) => {
     );
 
     res.json({
-      success: true,
-      message: "Login successful",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        userType: user.userType,
-        isEmailVerified: user.isEmailVerified,
-        isApproved: user.isApproved,
-      },
-      token: token,
-    });
+  success: true,
+  message: "Login successful",
+  user: {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    userType: user.userType,
+    isEmailVerified: user.isEmailVerified,
+    isApproved: user.isApproved,
+    // ✅ ADD THESE FOR FRONTEND COMPATIBILITY:
+    emailVerified: user.isEmailVerified, // Add this
+    adminVerified: user.isApproved, // Add this
+    profileComplete: user.profileComplete || false, // Add this
+  },
+  token: token,
+});
   } catch (error) {
     console.error("❌ Login error:", error);
     res.status(500).json({
