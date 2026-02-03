@@ -9,7 +9,6 @@ import Task from "../models/Task.js";
 import SavedTask from "../models/savedTask.js";
 import SavedProvider from "../models/SavedProvider.js";
 
-
 const router = express.Router();
 
 // ========================
@@ -58,9 +57,8 @@ router.get("/profile", auth, async (req, res) => {
   }
 });
 
-
 // ========================
-// ✅ UPDATE USER PROFILE (WITH APPROVAL SYSTEM)
+// ✅ UPDATE USER PROFILE (IMMEDIATE SAVE - NO APPROVAL)
 // ========================
 router.put("/profile", auth, upload.single("profileImage"), async (req, res) => {
   try {
@@ -70,23 +68,8 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Check if user is approved
-    if (!user.isApproved) {
-      return res.status(403).json({ 
-        success: false, 
-        message: "Your account must be approved before you can edit your profile" 
-      });
-    }
-
-    // Check if user already has pending changes
-    if (user.hasPendingChanges) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "You already have pending changes awaiting approval" 
-      });
-    }
-
     const updates = { ...req.body };
+    const profileComplete = updates.profileComplete === 'true';
     
     // Handle profile image
     if (req.file) {
@@ -102,52 +85,50 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
         }
       }
     }
-
-    // Store current data as original (for reference)
-    user.originalProfileData = {
-      name: user.name,
-      email: user.email,
-      phone: user.phone || "",
-      whatsapp: user.whatsapp || "",
-      location: user.location || "",
-      region: user.region || "",
-      profileImage: user.profileImage || "",
-      fname: user.fname || "",
-      sname: user.sname || "",
-      oname: user.oname || "",
-      updatedAt: new Date()
-    };
-
-    // Store pending changes (what the user wants to change to)
-    user.pendingProfileData = {
-      name: updates.name || user.name,
-      email: updates.email || user.email,
-      phone: updates.phone || user.phone || "",
-      whatsapp: updates.whatsapp || user.whatsapp || "",
-      location: updates.location || user.location || "",
-      region: updates.region || user.region || "",
-      profileImage: updates.profileImage || user.profileImage || "",
-      fname: updates.fname || user.fname || "",
-      sname: updates.sname || user.sname || "",
-      oname: updates.oname || user.oname || ""
-    };
-
-    // Set pending changes flag
-    user.hasPendingChanges = true;
-    user.pendingChangesSubmittedAt = new Date();
-
-    // Save the user (but don't apply changes yet)
+    
+    // Update user fields directly - IMMEDIATE SAVE
+    const fieldsToUpdate = [
+      'fname', 'sname', 'oname', 'phone', 'whatsapp', 
+      'location', 'region', 'profileImage'
+    ];
+    
+    // Check if this is the initial profile completion
+    const requiredFields = ['fname', 'sname', 'phone', 'whatsapp', 'location', 'region'];
+    const isInitialProfileSetup = requiredFields.every(field => 
+      !user[field] || user[field].trim() === ''
+    );
+    
+    // Update fields
+    fieldsToUpdate.forEach(field => {
+      if (updates[field] !== undefined) {
+        user[field] = updates[field];
+      }
+    });
+    
+    // Mark profile as complete if all required fields are filled
+    const allRequiredFilled = requiredFields.every(field => 
+      user[field] && user[field].trim() !== ''
+    );
+    
+    if (allRequiredFilled && isInitialProfileSetup) {
+      user.profileComplete = true;
+      user.profileCompletedAt = new Date();
+    }
+    
+    // Save the user directly to database
     await user.save();
-
-    // Return user without password
+    
+    // Return updated user
     const userResponse = user.toObject();
     delete userResponse.password;
-
+    
     res.json({
       success: true,
-      message: "Profile changes submitted for admin approval",
-      hasPendingChanges: true,
-      user: userResponse
+      message: allRequiredFilled 
+        ? "Profile saved successfully! Your information is now complete." 
+        : "Profile updated successfully!",
+      user: userResponse,
+      profileComplete: user.profileComplete
     });
 
   } catch (error) {
@@ -155,7 +136,6 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 
 // ✅ User statistics
 router.get("/stats", auth, async (req, res) => {
@@ -171,9 +151,8 @@ router.get("/stats", auth, async (req, res) => {
 
     //count all saved providers
     const savedProviders = await SavedProvider.countDocuments({
-  userId
-});
-
+      userId
+    });
 
     // Calculate account age
     const joinedDate = req.user.createdAt;
@@ -199,6 +178,5 @@ router.get("/stats", auth, async (req, res) => {
     });
   }
 });
-
 
 export default router;
