@@ -68,15 +68,18 @@ router.get("/verify-email/:token", async (req, res) => {
     await user.save();
 
     res.json({
-      success: true,
-      message: "Email verified successfully! You can now log in.",
-      user: {
-        id: user._id,
-        email: user.email,
-        isEmailVerified: user.isEmailVerified,
-        isApproved: user.isApproved,
-      },
-    });
+  success: true,
+  message: "Email verified successfully! You can now log in.",
+  user: {
+    id: user._id,
+    email: user.email,
+    isEmailVerified: user.isEmailVerified,
+    isApproved: user.isApproved,
+    // ✅ ADD FOR FRONTEND COMPATIBILITY:
+    emailVerified: user.isEmailVerified,
+    adminVerified: user.isApproved,
+  },
+});
   } catch (error) {
     console.error("Email verification error:", error);
     res.status(500).json({
@@ -332,17 +335,21 @@ router.post("/register", async (req, res) => {
     );
 
     res.status(201).json({
-      success: true,
-      message: "Registration successful! Please check your email to verify your account.",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        isEmailVerified: false,
-        isApproved: false,
-      },
-      token: token, // Optional: include token if you want auto-login
-    });
+  success: true,
+  message: "Registration successful! Please check your email to verify your account.",
+  user: {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    isEmailVerified: false,
+    isApproved: false,
+    // ✅ ADD FOR FRONTEND COMPATIBILITY:
+    emailVerified: false,
+    adminVerified: false,
+    profileComplete: false,
+  },
+  token: token,
+});
 
   } catch (error) {
     console.error("❌ Registration error:", error);
