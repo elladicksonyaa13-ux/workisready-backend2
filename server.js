@@ -36,6 +36,7 @@ const allowedOrigins = [
   process.env.BASE_URL,           // localhost:5173
   "httpS://africamails.com/workisready",        // Vite
   "http://localhost:5174",        // alt Vite
+  "http://localhost:5173",
   "http://10.0.2.2:5173",         // Android emulator → web
   "http://10.0.2.2:5000",         // Android emulator → backend
   "http://localhost",             // RN iOS
