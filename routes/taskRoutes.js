@@ -49,7 +49,7 @@ router.get("/user/my-tasks", auth, async (req, res) => {
   }
 });
 
-// ✅ POST new task
+
 // ✅ POST new task (UPDATED VERSION)
 router.post("/", auth, upload.array("images", 5), async (req, res) => {
   try {
@@ -116,6 +116,8 @@ router.post("/", auth, upload.array("images", 5), async (req, res) => {
         min: parseFloat(minBudget) || 0, 
         max: parseFloat(maxBudget) || 0 
       },
+      status: 'open', // Ensure status is set
+      completedAt: null, // Ensure completedAt is null for new tasks
       contact: { 
         phone: phone.trim(), 
         additionalContact: finalAdditionalContact.trim() 
@@ -349,5 +351,82 @@ router.get("/:id", async (req, res) => {
 //     res.status(500).json({ success: false, message: "Server error: " + error.message });
 //   }
 // });
+
+
+// In your routes file, update the status route (lines 275-329)
+router.put('/:id/status', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const userId = req.user.id;
+
+    console.log(`📝 Status update request: Task ${id}, Status: ${status}, User: ${userId}`);
+
+    // Validate status
+    const validStatuses = ['open', 'completed'];
+    if (!validStatuses.includes(status)) {
+      console.error(`❌ Invalid status: ${status}`);
+      return res.status(400).json({ 
+        success: false,
+        message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+      });
+    }
+
+    // Find task
+    const task = await Task.findById(id);
+    if (!task) {
+      console.error(`❌ Task not found: ${id}`);
+      return res.status(404).json({ 
+        success: false,
+        message: 'Task not found' 
+      });
+    }
+
+    // Check if user owns the task
+    console.log(`🔍 Task owner: ${task.clientId.toString()}, Request user: ${userId}`);
+    if (task.clientId.toString() !== userId.toString()) {
+      console.error('❌ Unauthorized status update attempt');
+      return res.status(403).json({ 
+        success: false,
+        message: 'Not authorized to update this task' 
+      });
+    }
+
+    // Update status
+    task.status = status;
+    
+    // Set completion date if marking as completed
+    if (status === 'completed') {
+      task.completedAt = Date.now();
+      console.log(`✅ Task ${id} marked as completed at ${task.completedAt}`);
+    } else if (status === 'open') {
+      // Clear completion date if reopening
+      task.completedAt = null;
+      console.log(`✅ Task ${id} reopened`);
+    }
+
+    await task.save();
+
+    console.log(`✅ Task status updated successfully: ${id} -> ${status}`);
+
+    res.json({ 
+      success: true,
+      message: 'Task status updated successfully',
+      task: {
+        _id: task._id,
+        title: task.title,
+        status: task.status,
+        completedAt: task.completedAt,
+        updatedAt: task.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error updating task status:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error while updating task status' 
+    });
+  }
+});
 
 export default router;
