@@ -62,6 +62,7 @@ router.post("/", auth, upload.array("images", 5), async (req, res) => {
       description,
       city,           // New field
       region,         // New field
+      district,
       location,       // Keep for backward compatibility
       dueDate,
       minBudget,
@@ -111,6 +112,8 @@ router.post("/", auth, upload.array("images", 5), async (req, res) => {
       category: categories,
       description: description.trim(),
       location: finalLocation.trim(),
+      district: district || '', // ADD THIS LINE
+      city: city || '',
       dueDate: new Date(dueDate),
       budget: { 
         min: parseFloat(minBudget) || 0, 
@@ -235,6 +238,7 @@ router.put("/:id", auth, upload.array("newImages", 5), async (req, res) => {
     task.description = description || task.description;
     task.city = city || task.city;
     task.region = region || task.region;
+    task.district = district || task.district; 
     task.location = city && region ? `${city}, ${region}` : task.location;
     task.dueDate = dueDate ? new Date(dueDate) : task.dueDate;
     task.budget = {
