@@ -12,6 +12,11 @@ const taskSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+   mainCategory: {
+    type: String,
+    required: true,  // Make this required for new jobs
+    trim: true
+  },
   category: [{
     type: String,
     required: true
@@ -98,11 +103,21 @@ const taskSchema = new mongoose.Schema({
 });
 
 // Add index for better search
-taskSchema.index({ title: 'text', description: 'text', category: 'text', location: 'text' });
+taskSchema.index({ title: 'text', description: 'text', mainCategory: 'text', category: 'text', location: 'text', region: 'text' });
 
 // Indexes for better query performance
 taskSchema.index({ clientId: 1, createdAt: -1 });
+taskSchema.index({ region: 1, mainCategory: 1, status: 1});
 taskSchema.index({ category: 1, status: 1 });
 taskSchema.index({ location: 'text', title: 'text', description: 'text' });
+taskSchema.index({ region: 1, status: 1 });
+
+taskSchema.pre('save', function(next) {
+  // If mainCategory is not set but category array has values, use the first one
+  if (!this.mainCategory && this.category && this.category.length > 0) {
+    this.mainCategory = this.category[0];
+  }
+  next();
+});
 
 export default mongoose.model('Task', taskSchema);

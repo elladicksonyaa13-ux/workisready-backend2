@@ -6,6 +6,7 @@ import path from "path";
 import fs from "fs";
 import { adminAuth } from "../middleware/auth.js";
 import { normalizeFilePath } from '../utils/pathUtils.js';
+import mongoose from "mongoose";
 
 
 const router = express.Router();
@@ -48,6 +49,384 @@ const upload = multer({
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
     files: 11 // 1 profile pic + max 10 sample works
+  }
+});
+
+
+// In your providerRoutes.js file
+router.get("/providers-by-region", async (req, res) => {
+  try {
+    console.log("🔄 Fetching providers by region...");
+    
+    // Get Provider model
+    const Provider = mongoose.model('Provider');
+    
+    // Define all Ghana regions in alphabetical order
+    const allGhanaRegions = [
+      'Ahafo', 'Ashanti', 'Bono', 'Bono East', 'Brong-Ahafo', 
+      'Central', 'Eastern', 'Greater Accra', 'Northern', 'Oti', 
+      'Savannah', 'Upper East', 'Upper West', 'Volta', 'Western', 
+      'Western North'
+    ];
+    
+    // Get approved providers with regions
+    const providers = await Provider.find({ 
+      isApproved: true,
+      region: { $exists: true, $ne: null, $ne: "" }
+    })
+    .select("region skills averageRating")
+    .lean();
+    
+    console.log(`✅ Found ${providers.length} approved providers with regions`);
+    
+    // Initialize region map
+    const regionStats = {};
+    allGhanaRegions.forEach(region => {
+      regionStats[region] = {
+        providerCount: 0,
+        totalRating: 0,
+        skills: {}
+      };
+    });
+    
+    // Count providers and aggregate data by region
+    providers.forEach(provider => {
+      const region = provider.region ? provider.region.trim() : '';
+      
+      if (!region) return;
+      
+      // Find matching region (case-insensitive)
+      const matchedRegion = allGhanaRegions.find(r => 
+        r.toLowerCase() === region.toLowerCase()
+      );
+      
+      if (!matchedRegion) return;
+      
+      const stats = regionStats[matchedRegion];
+      stats.providerCount++;
+      
+      // Add rating
+      if (provider.averageRating && typeof provider.averageRating === 'number') {
+        stats.totalRating += provider.averageRating;
+      }
+      
+      // Count skills
+      if (provider.skills && Array.isArray(provider.skills)) {
+        provider.skills.forEach(skill => {
+          if (skill && typeof skill === 'string') {
+            const skillKey = skill.trim().toLowerCase();
+            if (skillKey) {
+              stats.skills[skillKey] = (stats.skills[skillKey] || 0) + 1;
+            }
+          }
+        });
+      }
+    });
+    
+    // Prepare response
+    const regionsArray = allGhanaRegions
+      .map(regionName => {
+        const stats = regionStats[regionName];
+        
+        // Skip regions with no providers
+        if (stats.providerCount === 0) return null;
+        
+        // Calculate average rating
+        const averageRating = stats.providerCount > 0 && stats.totalRating > 0 
+          ? parseFloat((stats.totalRating / stats.providerCount).toFixed(1))
+          : 0;
+        
+        // Get top 3 skills
+        const skillsArray = Object.entries(stats.skills);
+        const topSkills = {};
+        skillsArray
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .forEach(([skill, count]) => {
+            topSkills[skill] = count;
+          });
+        
+        // Calculate total skills
+        const totalSkills = Object.values(stats.skills).reduce((sum, count) => sum + count, 0);
+        
+        return {
+          _id: regionName.toLowerCase().replace(/\s+/g, '-'),
+          name: regionName,
+          providerCount: stats.providerCount,
+          skills: topSkills,
+          totalSkills: totalSkills,
+          averageRating: averageRating,
+          hasProviders: true
+        };
+      })
+      .filter(region => region !== null); // Remove null entries
+    
+    const totalProviders = regionsArray.reduce((sum, r) => sum + r.providerCount, 0);
+    const totalSkills = regionsArray.reduce((sum, r) => sum + r.totalSkills, 0);
+    
+    console.log(`✅ Returning ${regionsArray.length} regions with ${totalProviders} providers`);
+    
+    res.json({
+      success: true,
+      regions: regionsArray,
+      totalProviders: totalProviders,
+      totalSkills: totalSkills,
+      regionsWithProviders: regionsArray.length,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error("❌ Error in providers-by-region:", error);
+    console.error("❌ Error stack:", error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+
+
+// // ✅ GET providers by region and category (for RegionCategoryProviders)
+// router.get("/region-category", async (req, res) => {
+//   try {
+//     const { region, category } = req.query;
+    
+//     let filter = { status: 'active' };
+    
+//     if (region) {
+//       filter.operatingRegions = { 
+//         $regex: new RegExp(region, 'i') 
+//       };
+//     }
+    
+//     if (category) {
+//       filter.serviceCategories = { 
+//         $regex: new RegExp(category, 'i') 
+//       };
+//     }
+    
+//     const providers = await User.find(filter)
+//       .select('fullName businessName profileImage description serviceCategories operatingRegions rating reviewCount isVerified yearsOfExperience city district')
+//       .sort({ rating: -1, reviewCount: -1 });
+    
+//     res.json({
+//       success: true,
+//       providers: providers,
+//       count: providers.length,
+//       filters: { region, category }
+//     });
+    
+//   } catch (error) {
+//     res.status(500).json({
+//       success: false,
+//       error: error.message
+//     });
+//   }
+// });
+
+
+
+
+// ✅ GET provider counts by region and category (OPTIMIZED)
+router.get("/region/:regionName/category-counts", async (req, res) => {
+  try {
+    const { regionName } = req.params;
+    
+    console.log(`📊 Getting provider counts for region: "${regionName}"`);
+    
+    // Use MongoDB aggregation for efficient counting
+    const results = await Provider.aggregate([
+      {
+        $match: {
+          isApproved: true,
+          region: { 
+            $regex: new RegExp(`^${regionName}$`, 'i') 
+          },
+          category: { $exists: true, $ne: [], $ne: null }
+        }
+      },
+      {
+        $unwind: "$category" // Unwind the array to count each category separately
+      },
+      {
+        $group: {
+          _id: "$category",
+          providerCount: { $sum: 1 },
+          // Get sample providers with basic info
+          sampleProviders: { 
+            $push: {
+              _id: "$_id",
+              fullName: "$fullName",
+              profilePic: "$profilePic",
+              averageRating: "$averageRating",
+              experience: "$experience"
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          category: "$_id",
+          providerCount: 1,
+          sampleProviders: { $slice: ["$sampleProviders", 3] }, // Limit to 3 samples
+          _id: 0
+        }
+      },
+      { $sort: { providerCount: -1 } }
+    ]);
+    
+    // Get total providers in region
+    const totalProviders = await Provider.countDocuments({
+      isApproved: true,
+      region: { $regex: new RegExp(`^${regionName}$`, 'i') }
+    });
+    
+    console.log(`✅ Region stats for ${regionName}: ${totalProviders} total providers, ${results.length} categories`);
+    
+    res.json({
+      success: true,
+      region: regionName,
+      totalProviders: totalProviders,
+      categoryStats: results,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error("❌ Error in region category counts:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ✅ GET providers by region AND specific category
+router.get("/region-category", async (req, res) => {
+  try {
+    const { region, category, page = 1, limit = 20, sort = "rating" } = req.query;
+    
+    const query = {
+      isApproved: true
+    };
+    
+    // Region filter
+    if (region) {
+      query.region = { 
+        $regex: new RegExp(`^${region}$`, 'i') 
+      };
+    }
+    
+    // Category filter - providers can have multiple categories
+    if (category) {
+      query.category = { 
+        $in: [category] // Match any provider that has this category in their array
+      };
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Sorting options
+    let sortOption = {};
+    switch(sort) {
+      case "rating":
+        sortOption = { averageRating: -1 };
+        break;
+      case "experience":
+        sortOption = { experience: -1 };
+        break;
+      case "newest":
+        sortOption = { createdAt: -1 };
+        break;
+      default:
+        sortOption = { averageRating: -1 };
+    }
+    
+    const [providers, total] = await Promise.all([
+      Provider.find(query)
+        .select('fullName firstName surname otherName profilePic bio category skills experience hourlyRate availability averageRating reviews city region totalJobs completedJobs responseRate isVerified')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Provider.countDocuments(query)
+    ]);
+    
+    // Process providers to add virtuals
+    const processedProviders = providers.map(provider => {
+      const providerObj = provider.toObject();
+      
+      // Add virtual fields
+      providerObj.formattedHourlyRate = provider.hourlyRate 
+        ? `₵${provider.hourlyRate}/hour`
+        : "Negotiable";
+      
+      providerObj.experienceLabel = provider.experienceLabel || "Not specified";
+      providerObj.availabilityLabel = provider.availabilityLabel || "Flexible";
+      
+      // Add review count
+      providerObj.reviewCount = provider.reviews?.length || 0;
+      
+      return providerObj;
+    });
+    
+    res.json({
+      success: true,
+      providers: processedProviders,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+      filters: { region, category, sort }
+    });
+    
+  } catch (error) {
+    console.error("❌ Error fetching region-category providers:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ✅ GET all unique categories from providers in a region
+router.get("/region/:regionName/categories", async (req, res) => {
+  try {
+    const { regionName } = req.params;
+    
+    const categories = await Provider.aggregate([
+      {
+        $match: {
+          isApproved: true,
+          region: { 
+            $regex: new RegExp(`^${regionName}$`, 'i') 
+          }
+        }
+      },
+      { $unwind: "$category" },
+      { 
+        $group: { 
+          _id: "$category",
+          count: { $sum: 1 }
+        } 
+      },
+      { $sort: { count: -1 } },
+      { $limit: 20 }
+    ]);
+    
+    res.json({
+      success: true,
+      region: regionName,
+      categories: categories.map(c => ({ name: c._id, count: c.count })),
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -446,5 +825,12 @@ router.patch("/bulk-approve", adminAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to approve providers" });
   }
 });
+
+
+
+
+
+
+
 
 export default router;

@@ -58,6 +58,7 @@ router.post("/", auth, upload.array("images", 5), async (req, res) => {
 
     const {
       title,
+      mainCategory,
       category,
       description,
       city,           // New field
@@ -109,6 +110,7 @@ router.post("/", auth, upload.array("images", 5), async (req, res) => {
 
     const task = new Task({
   title: title.trim(),
+  mainCategory: mainCategory || category[0], // Use mainCategory or first category
   category: categories,
   description: description.trim(),
   location: finalLocation.trim(),
@@ -298,19 +300,232 @@ router.delete("/:id", auth, async (req, res) => {
   }
 });
 
-// ✅ GET all tasks
-// ✅ GET all tasks (return new fields)
-router.get("/", async (req, res) => {
+
+
+
+// ✅ GET region category statistics (OPTIMIZED for RegionServices page)
+router.get("/region-stats/:regionName", async (req, res) => {
   try {
-    const tasks = await Task.find()
-      .populate("clientId", "name email phone whatsapp")
+    const { regionName } = req.params;
+    
+    console.log(`📊 Getting region stats for: "${regionName}"`);
+    
+    // Clean region name
+    const cleanRegion = regionName.replace(/ region$/i, '').trim();
+    
+    // Use MongoDB aggregation for fast counting
+    const stats = await Task.aggregate([
+      {
+        $match: {
+          status: 'open',
+          region: { $regex: new RegExp(`^${cleanRegion}$`, 'i') },
+          mainCategory: { $exists: true, $ne: null, $ne: '' }
+        }
+      },
+      {
+        $group: {
+          _id: '$mainCategory',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          category: '$_id',
+          count: 1,
+          _id: 0
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+    
+    // Get total jobs in region
+    const totalJobs = await Task.countDocuments({
+      status: 'open',
+      region: { $regex: new RegExp(`^${cleanRegion}$`, 'i') }
+    });
+    
+    console.log(`✅ Region stats for ${regionName}: ${totalJobs} total jobs, ${stats.length} categories`);
+    
+    res.json({
+      success: true,
+      region: regionName,
+      cleanRegion: cleanRegion,
+      totalJobs: totalJobs,
+      categoryStats: stats,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error("❌ Error fetching region stats:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ✅ GET all open tasks (for debugging/frontend fallback)
+router.get("/all-open", async (req, res) => {
+  try {
+    const tasks = await Task.find({ status: 'open' })
+      .select('title mainCategory category region city status')
+      .limit(200) // Limit for safety
       .sort({ createdAt: -1 });
     
     res.json({ 
       success: true, 
       tasks,
-      count: tasks.length 
+      count: tasks.length,
+      message: tasks.length >= 200 ? "Limited to 200 most recent tasks" : ""
     });
+  } catch (error) {
+    console.error("❌ Error fetching open tasks:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// ✅ DEBUG: Test region filtering
+router.get("/debug/region-test", async (req, res) => {
+  try {
+    const { region } = req.query;
+    
+    if (!region) {
+      return res.json({
+        success: false,
+        message: "Please provide ?region= parameter"
+      });
+    }
+    
+    // Test different filtering approaches
+    const cleanRegion = region.replace(/ region$/i, '').trim();
+    
+    const results = {
+      requestedRegion: region,
+      cleanRegion: cleanRegion,
+      tests: {}
+    };
+    
+    // Test 1: Exact match with cleaned region
+    results.tests.exactMatch = await Task.find({
+      region: { $regex: new RegExp(`^${cleanRegion}$`, 'i') },
+      status: 'open'
+    }).select('title region').limit(5);
+    
+    // Test 2: Case-insensitive partial match
+    results.tests.partialMatch = await Task.find({
+      region: { $regex: new RegExp(region, 'i') },
+      status: 'open'
+    }).select('title region').limit(5);
+    
+    // Test 3: All regions in database
+    const allRegions = await Task.distinct('region', { status: 'open' });
+    results.allRegionsInDB = allRegions.filter(r => r); // Remove null/empty
+    
+    res.json({
+      success: true,
+      ...results
+    });
+    
+  } catch (error) {
+    console.error("❌ Error in region test:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
+
+
+
+
+
+// ✅ GET tasks with PROPER filtering
+router.get("/", async (req, res) => {
+  try {
+    const { 
+      region, 
+      status, 
+      mainCategory, 
+      category, 
+      city, 
+      limit = 100, 
+      page = 1 
+    } = req.query;
+    
+    let filter = {};
+    
+    // ✅ PROPER REGION FILTERING
+    if (region) {
+      console.log(`🔍 Filtering by region: "${region}"`);
+      
+      // Clean the region name (remove "Region" suffix if present)
+      const cleanRegion = region.replace(/ region$/i, '').trim();
+      
+      // Case-insensitive regex for exact match
+      filter.region = { 
+        $regex: new RegExp(`^${cleanRegion}$`, 'i')
+      };
+    }
+    
+    // Other filters
+    if (status) {
+      filter.status = status;
+    } else {
+      // Default to open tasks only
+      filter.status = 'open';
+    }
+    
+    if (mainCategory) {
+      filter.mainCategory = { $regex: new RegExp(mainCategory, 'i') };
+    }
+    
+    if (category) {
+      filter.category = { $in: [category] };
+    }
+    
+    if (city) {
+      filter.city = { $regex: new RegExp(city, 'i') };
+    }
+    
+    console.log(`📊 Query filter:`, JSON.stringify(filter, null, 2));
+    
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Execute query with pagination
+    const [tasks, total] = await Promise.all([
+      Task.find(filter)
+        .populate("clientId", "name email phone whatsapp")
+        .select('title mainCategory category description region city district location status budget images createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Task.countDocuments(filter)
+    ]);
+    
+    console.log(`✅ Found ${tasks.length} tasks (${total} total) with filter`);
+    
+    // Debug: Show regions of returned tasks
+    if (region && tasks.length > 0) {
+      const uniqueRegions = [...new Set(tasks.map(task => task.region))];
+      console.log(`📍 Regions in response:`, uniqueRegions);
+    }
+    
+    res.json({ 
+      success: true, 
+      tasks,
+      count: tasks.length,
+      total: total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+      filter: filter
+    });
+    
   } catch (error) {
     console.error("❌ Error fetching tasks:", error);
     res.status(500).json({ 

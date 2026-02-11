@@ -3,18 +3,16 @@ import mongoose from "mongoose";
 
 const router = express.Router();
 
-// GET real jobs by region - SIMPLE VERSION
-// In your regionRoutes.js, update the jobs-by-region endpoint:
-
 router.get("/jobs-by-region", async (req, res) => {
   try {
     console.log("🔄 Fetching real jobs by region...");
     
-    // Define all 16 Ghana regions
+    // Define all 16 Ghana regions in alphabetical order
     const allGhanaRegions = [
-      'Ashanti', 'Brong-Ahafo', 'Central', 'Eastern', 'Greater Accra',
-      'Northern', 'Upper East', 'Upper West', 'Volta', 'Western',
-      'Western North', 'Oti', 'Ahafo', 'Bono', 'Bono East', 'Savannah'
+      'Ahafo', 'Ashanti', 'Bono', 'Bono East', 'Brong-Ahafo', 
+      'Central', 'Eastern', 'Greater Accra', 'Northern', 'Oti', 
+      'Savannah', 'Upper East', 'Upper West', 'Volta', 'Western', 
+      'Western North'
     ];
     
     // Try to get the Task model
@@ -113,7 +111,7 @@ router.get("/jobs-by-region", async (req, res) => {
       }
     });
     
-    // Convert to array format - include Unspecified Region first
+    // Convert to array format - NO SORTING BY JOB COUNT
     const regionsArray = [
       // Unspecified Region first (if it has jobs)
       ...(regionMap["Unspecified Region"].totalJobs > 0 ? [{
@@ -125,7 +123,7 @@ router.get("/jobs-by-region", async (req, res) => {
         isUnspecified: true
       }] : []),
       
-      // Then all Ghana regions
+      // Then all Ghana regions in ALPHABETICAL ORDER (as defined in allGhanaRegions)
       ...allGhanaRegions.map(regionName => ({
         _id: regionName,
         name: regionName,
@@ -136,25 +134,15 @@ router.get("/jobs-by-region", async (req, res) => {
       }))
     ];
     
-    // Sort Ghana regions by job count (highest first)
-    const ghanaRegions = regionsArray.filter(r => !r.isUnspecified);
-    const unspecifiedRegion = regionsArray.find(r => r.isUnspecified);
+    // ✅ NO SORTING BY JOB COUNT - Keep alphabetical order
+    const totalJobs = regionsArray.reduce((sum, region) => sum + region.totalJobs, 0);
     
-    const sortedGhanaRegions = [...ghanaRegions].sort((a, b) => b.totalJobs - a.totalJobs);
-    
-    // Combine back with unspecified region first
-    const finalRegions = [
-      ...(unspecifiedRegion ? [unspecifiedRegion] : []),
-      ...sortedGhanaRegions
-    ];
-    
-    const totalJobs = finalRegions.reduce((sum, region) => sum + region.totalJobs, 0);
-    
-    console.log(`✅ Returning ${finalRegions.length} regions with ${totalJobs} total jobs`);
+    console.log(`✅ Returning ${regionsArray.length} regions with ${totalJobs} total jobs`);
+    console.log(`✅ Order: Alphabetical (starting with ${regionsArray[0]?.name || 'none'})`);
     
     res.json({
       success: true,
-      regions: finalRegions,
+      regions: regionsArray, // Already in alphabetical order
       totalJobs: totalJobs,
       totalOpenJobs: jobs.length,
       jobsWithRegions: jobs.filter(j => j.region && j.region.trim()).length,
