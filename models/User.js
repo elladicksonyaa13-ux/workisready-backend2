@@ -68,6 +68,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+
+    district: {
+      type: String,
+      default: "",
+    },
     
     // User Type
     userType: {

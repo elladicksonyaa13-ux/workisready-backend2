@@ -201,6 +201,7 @@ router.put("/:id", auth, upload.array("newImages", 5), async (req, res) => {
       description,
       city,
       region,
+      district,
       dueDate,
       minBudget,
       maxBudget,
@@ -457,64 +458,102 @@ router.get("/", async (req, res) => {
       page = 1 
     } = req.query;
     
+    console.log("=".repeat(50));
+    console.log("🔍 INCOMING QUERY:", req.query);
+    
     let filter = {};
     
-    // ✅ PROPER REGION FILTERING
+    // ✅ 1. STATUS FILTER (with default)
+    if (status) {
+      filter.status = status;
+    } else {
+      filter.status = 'open'; // Default to open jobs
+    }
+    
+    // ✅ 2. REGION FILTER - Case insensitive exact match
     if (region) {
-      console.log(`🔍 Filtering by region: "${region}"`);
+      console.log(`📍 Region filter: "${region}"`);
       
       // Clean the region name (remove "Region" suffix if present)
       const cleanRegion = region.replace(/ region$/i, '').trim();
       
-      // Case-insensitive regex for exact match
+      // Case-insensitive exact match
       filter.region = { 
         $regex: new RegExp(`^${cleanRegion}$`, 'i')
       };
     }
     
-    // Other filters
-    if (status) {
-      filter.status = status;
-    } else {
-      // Default to open tasks only
-      filter.status = 'open';
-    }
-    
+    // ✅ 3. MAIN CATEGORY FILTER - THIS IS THE CRITICAL FIX
     if (mainCategory) {
-      filter.mainCategory = { $regex: new RegExp(mainCategory, 'i') };
+      console.log(`📌 MainCategory filter: "${mainCategory}"`);
+      
+      // 🔥 FIX: Use $eq for exact match - this is the most reliable
+      filter.mainCategory = { $eq: mainCategory };
+      
+      // Alternative if above doesn't work: use exact string match
+      // filter.mainCategory = mainCategory;
     }
     
+    // ✅ 4. CATEGORY ARRAY FILTER
     if (category) {
       filter.category = { $in: [category] };
     }
     
+    // ✅ 5. CITY FILTER
     if (city) {
       filter.city = { $regex: new RegExp(city, 'i') };
     }
     
-    console.log(`📊 Query filter:`, JSON.stringify(filter, null, 2));
+    console.log("📊 FINAL FILTER:", JSON.stringify(filter, null, 2));
     
     // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Execute query with pagination
+    // Execute query
     const [tasks, total] = await Promise.all([
       Task.find(filter)
         .populate("clientId", "name email phone whatsapp")
-        .select('title mainCategory category description region city district location status budget images createdAt')
+        .select('title mainCategory category description region city district location status budget images createdAt dueDate')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit)),
       Task.countDocuments(filter)
     ]);
     
-    console.log(`✅ Found ${tasks.length} tasks (${total} total) with filter`);
+    console.log(`✅ Found ${tasks.length} tasks (${total} total)`);
     
-    // Debug: Show regions of returned tasks
-    if (region && tasks.length > 0) {
-      const uniqueRegions = [...new Set(tasks.map(task => task.region))];
-      console.log(`📍 Regions in response:`, uniqueRegions);
+    // Debug output
+    if (tasks.length > 0) {
+      console.log("✅ First task:", {
+        title: tasks[0].title,
+        mainCategory: tasks[0].mainCategory,
+        region: tasks[0].region
+      });
+    } else {
+      console.log("❌ No tasks found. Checking database...");
+      
+      // Debug: Check what's in the database
+      const sampleTasks = await Task.find({}).limit(3).select('title mainCategory region');
+      console.log("📊 Sample tasks in DB:", sampleTasks);
+      
+      // Debug: Check distinct mainCategory values
+      const categories = await Task.distinct('mainCategory');
+      console.log("📊 Available mainCategories:", categories);
+      
+      // Debug: Check if your specific task exists
+      const yourTask = await Task.findOne({ title: "health" });
+      if (yourTask) {
+        console.log("✅ Your task exists:", {
+          title: yourTask.title,
+          mainCategory: yourTask.mainCategory,
+          region: yourTask.region
+        });
+      } else {
+        console.log("❌ Task 'health' not found");
+      }
     }
+    
+    console.log("=".repeat(50));
     
     res.json({ 
       success: true, 

@@ -5,7 +5,9 @@ import Provider from "../../models/Providers.js";
 import { adminAuth } from "../../middleware/auth.js";
 import { fileURLToPath } from "url";
 import path from "path";
+import mongoose from "mongoose";
 import fs from "fs";
+import ProviderUpdateRequest from "../../models/ProviderUpdateRequest.js";
 
 const router = express.Router();
 
@@ -88,6 +90,7 @@ router.get("/", adminAuth, async (req, res) => {
         { phone: { $regex: search, $options: "i" } },
         { city: { $regex: search, $options: "i" } },
         { region: { $regex: search, $options: "i" } },
+        { district: { $regex: search, $options: "i" } },
       ];
     }
     
@@ -168,6 +171,37 @@ router.get("/", adminAuth, async (req, res) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 🛠️ ADMIN: GET PENDING PROVIDER UPDATE REQUESTS */
+/* -------------------------------------------------------------------------- */
+router.get("/update-requests", adminAuth, async (req, res) => {
+  try {
+    console.log("Admin fetching pending provider update requests");
+    
+    // You'll need a ProviderUpdateRequest model
+    const ProviderUpdateRequest = mongoose.model('ProviderUpdateRequest');
+    
+    const requests = await ProviderUpdateRequest.find({ 
+      status: "pending" 
+    })
+    .populate("providerId")
+    .populate("userId", "firstName surname email")
+    .sort({ createdAt: -1 });
+    
+    res.json({ 
+      success: true, 
+      requests 
+    });
+  } catch (error) {
+    console.error("❌ Error fetching update requests:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+
+/* -------------------------------------------------------------------------- */
 /* 🛠️ ADMIN: GET SINGLE PROVIDER BY ID */
 /* -------------------------------------------------------------------------- */
 router.get("/:id", adminAuth, async (req, res) => {
@@ -237,7 +271,7 @@ router.put("/:id", adminAuth,
       
       // Update basic fields
       const textFields = [
-        'firstName', 'surname', 'otherName', 'city', 'region', 
+        'firstName', 'surname', 'otherName', 'city', 'region', 'district',
         'bio', 'experience', 'hourlyRate', 'availability', 
         'phone', 'whatsapp', 'email'
       ];
@@ -833,6 +867,135 @@ router.patch("/bulk-feature", adminAuth, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: "Server error: " + error.message 
+    });
+  }
+});
+
+
+
+
+/* -------------------------------------------------------------------------- */
+/* 🛠️ ADMIN: APPROVE PROVIDER UPDATE REQUEST */
+/* -------------------------------------------------------------------------- */
+router.post("/update-requests/:requestId/approve", adminAuth, async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    
+    const ProviderUpdateRequest = mongoose.model('ProviderUpdateRequest');
+    
+    // Find the request
+    const request = await ProviderUpdateRequest.findById(requestId)
+      .populate("providerId");
+    
+    if (!request) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Update request not found" 
+      });
+    }
+    
+    // Get the provider
+    const provider = request.providerId;
+    
+    if (!provider) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Provider not found" 
+      });
+    }
+    
+    // Parse the changes from the request
+    const changes = request.changes;
+    
+    console.log("Approving changes for provider:", provider._id);
+    console.log("Changes to apply:", changes);
+    console.log("New sample files:", request.newSampleFiles); // ✅ Check this
+
+    
+    // Update provider with the approved changes
+    if (changes.category) provider.category = changes.category;
+    if (changes.bio) provider.bio = changes.bio;
+    if (changes.skills) provider.skills = changes.skills;
+    if (changes.experience) provider.experience = changes.experience;
+    if (changes.hourlyRate) provider.hourlyRate = changes.hourlyRate;
+    if (changes.availability) provider.availability = changes.availability;
+    
+   // ✅ FIX: Handle sample work from newSampleFiles, NOT changes.sampleWork
+    if (request.newSampleFiles && request.newSampleFiles.length > 0) {
+      console.log(`📸 Adding ${request.newSampleFiles.length} new sample files`);
+      
+      // Initialize sampleWork array if it doesn't exist
+      if (!provider.sampleWork) {
+        provider.sampleWork = [];
+      }
+      
+      // Add new files to existing samples (limit to 10 total)
+      provider.sampleWork = [...provider.sampleWork, ...request.newSampleFiles].slice(0, 10);
+      
+      console.log(`✅ Sample work now has ${provider.sampleWork.length} files`);
+    }
+    
+    await provider.save();
+    
+    // Update request status
+    request.status = "approved";
+    request.processedAt = new Date();
+    request.processedBy = req.user.id;
+    await request.save();
+    
+    // Notify user via email or notification (optional)
+    
+    res.json({ 
+      success: true, 
+      message: "Provider update approved successfully",
+      provider
+    });
+    
+  } catch (error) {
+    console.error("❌ Error approving update request:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+/* -------------------------------------------------------------------------- */
+/* 🛠️ ADMIN: REJECT PROVIDER UPDATE REQUEST */
+/* -------------------------------------------------------------------------- */
+router.post("/update-requests/:requestId/reject", adminAuth, async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const { reason } = req.body;
+    
+    const ProviderUpdateRequest = mongoose.model('ProviderUpdateRequest');
+    
+    const request = await ProviderUpdateRequest.findById(requestId);
+    
+    if (!request) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Update request not found" 
+      });
+    }
+    
+    request.status = "rejected";
+    request.rejectionReason = reason || "No reason provided";
+    request.processedAt = new Date();
+    request.processedBy = req.user.id;
+    await request.save();
+    
+    res.json({ 
+      success: true, 
+      message: "Update request rejected",
+      request
+    });
+    
+  } catch (error) {
+    console.error("❌ Error rejecting update request:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
     });
   }
 });

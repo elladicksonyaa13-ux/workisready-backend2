@@ -78,8 +78,8 @@ router.get("/jobs-by-region", async (req, res) => {
         
         // Check if region exists in our list
         const matchingRegion = allGhanaRegions.find(r => 
-          r.toLowerCase() === normalizedRegion.toLowerCase() ||
-          normalizedRegion.toLowerCase().includes(r.toLowerCase())
+          r.toLowerCase() === normalizedRegion.toLowerCase() 
+          // normalizedRegion.toLowerCase().includes(r.toLowerCase())
         );
         
         if (matchingRegion) {

@@ -7,6 +7,8 @@ import fs from "fs";
 import { adminAuth } from "../middleware/auth.js";
 import { normalizeFilePath } from '../utils/pathUtils.js';
 import mongoose from "mongoose";
+import ProviderUpdateRequest from "../models/ProviderUpdateRequest.js"; // ✅ ADD THIS IMPORT
+
 
 
 const router = express.Router();
@@ -461,6 +463,7 @@ router.post(
         otherName,
         city,
         region,
+        district,
         category,
         bio,
         skills,
@@ -503,6 +506,7 @@ router.post(
         fullName,
         city,
         region,
+        district,
         category: category ? JSON.parse(category) : [],
         bio,
         skills: skills ? JSON.parse(skills) : [],
@@ -675,7 +679,7 @@ router.put(
       }
       
       // Update other fields
-      const fields = ['city', 'region', 'bio', 'experience', 'hourlyRate', 
+      const fields = ['city', 'region', 'district', 'bio', 'experience', 'hourlyRate', 
                       'availability', 'phone', 'whatsapp', 'email'];
       
       fields.forEach(field => {
@@ -828,6 +832,101 @@ router.patch("/bulk-approve", adminAuth, async (req, res) => {
 
 
 
+/* -------------------------------------------------------------------------- */
+/* PUBLIC: SUBMIT PROVIDER UPDATE REQUEST (for approval) */
+/* -------------------------------------------------------------------------- */
+router.post("/update-request", auth, upload.array("sampleWork", 10), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    console.log("📝 Processing update request for user:", userId);
+    
+    // Get the provider record for this user
+    const provider = await Provider.findOne({ userId });
+    
+    if (!provider) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Provider profile not found" 
+      });
+    }
+    
+    console.log("✅ Found provider:", provider._id);
+    
+    // Parse the changes from the request
+    const changes = {};
+    
+    if (req.body.category) {
+      try {
+        changes.category = JSON.parse(req.body.category);
+      } catch (e) {
+        changes.category = Array.isArray(req.body.category) ? req.body.category : [req.body.category];
+      }
+    }
+    
+    if (req.body.bio) changes.bio = req.body.bio;
+    
+    if (req.body.skills) {
+      try {
+        changes.skills = JSON.parse(req.body.skills);
+      } catch (e) {
+        changes.skills = Array.isArray(req.body.skills) ? req.body.skills : [req.body.skills];
+      }
+    }
+    
+    if (req.body.experience) changes.experience = req.body.experience;
+    if (req.body.hourlyRate) changes.hourlyRate = req.body.hourlyRate;
+    if (req.body.availability) changes.availability = req.body.availability;
+    
+    console.log("📦 Changes to submit:", changes);
+    
+    // Handle uploaded sample work files
+    const sampleWorkPaths = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(file => {
+        // Store relative path
+        sampleWorkPaths.push(`uploads/providers/${file.filename}`);
+      });
+      console.log("📸 New sample files:", sampleWorkPaths);
+    }
+    
+    // Check if there are actual changes
+    if (Object.keys(changes).length === 0 && sampleWorkPaths.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No changes detected to submit"
+      });
+    }
+    
+    // Import the ProviderUpdateRequest model
+    const ProviderUpdateRequest = mongoose.model('ProviderUpdateRequest');
+    
+    // Create update request
+    const updateRequest = new ProviderUpdateRequest({
+      providerId: provider._id,
+      userId: userId,
+      changes: changes,
+      newSampleFiles: sampleWorkPaths,
+      status: "pending"
+    });
+    
+    await updateRequest.save();
+    console.log("✅ Update request saved with ID:", updateRequest._id);
+    
+    res.json({ 
+      success: true, 
+      message: "Update request submitted for admin approval. You will be notified when it's reviewed.",
+      requestId: updateRequest._id
+    });
+    
+  } catch (error) {
+    console.error("❌ Error submitting update request:", error);
+    console.error(error.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error: " + error.message 
+    });
+  }
+});
 
 
 

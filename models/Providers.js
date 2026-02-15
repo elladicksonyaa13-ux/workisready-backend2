@@ -19,6 +19,7 @@ const providerSchema = new mongoose.Schema(
     // Location (split like the form)
     city: { type: String, required: true },
     region: { type: String, required: true },
+    district: { type: String, required: true},
 
     // Categories (MULTI SELECT)
     category: {
@@ -254,7 +255,7 @@ providerSchema.virtual("availabilityLabel").get(function () {
 
 // ⭐ Indexes for better query performance
 providerSchema.index({ fullName: "text", bio: "text", skills: "text" });
-providerSchema.index({ city: 1, region: 1 });
+providerSchema.index({ city: 1, region: 1, district: 1 });
 providerSchema.index({ averageRating: -1 });
 providerSchema.index({ category: 1 });
 providerSchema.index({ isApproved: 1, createdAt: -1 });

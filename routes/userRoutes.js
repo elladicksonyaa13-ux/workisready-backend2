@@ -89,11 +89,11 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
     // Update user fields directly - IMMEDIATE SAVE
     const fieldsToUpdate = [
       'fname', 'sname', 'oname', 'phone', 'whatsapp', 
-      'location', 'region', 'profileImage'
+      'location', 'region', 'profileImage', 'district'
     ];
     
     // Check if this is the initial profile completion
-    const requiredFields = ['fname', 'sname', 'phone', 'whatsapp', 'location', 'region'];
+    const requiredFields = ['fname', 'sname', 'phone', 'whatsapp', 'location', 'region', 'district'];
     const isInitialProfileSetup = requiredFields.every(field => 
       !user[field] || user[field].trim() === ''
     );

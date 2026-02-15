@@ -41,6 +41,7 @@ export const updateProvider = async (req, res) => {
       surname,
       city,
       region,
+      district,
       category,
       bio,
       skills,
@@ -67,6 +68,7 @@ export const updateProvider = async (req, res) => {
     provider.surname = surname ?? provider.surname;
     provider.city = city ?? provider.city;
     provider.region = region ?? provider.region;
+    provider.district = district ?? provider.district;
     provider.bio = bio ?? provider.bio;
 
     if (category) provider.category = JSON.parse(category);
