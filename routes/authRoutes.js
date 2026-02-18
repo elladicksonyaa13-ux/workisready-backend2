@@ -25,7 +25,7 @@ router.get('/google/callback', async (req, res) => {
     // Simulate POST body
     req.body = {
       code,
-      redirectUri: 'https://workisready-backend-production-5f8d.up.railway.app/api/auth/google/callback',
+      redirectUri: 'https://workisready-backend1-production.up.railway.app/api/auth/google/callback',
     };
 
     // Call existing controller
@@ -41,7 +41,8 @@ router.get('/google/callback', async (req, res) => {
 router.get("/verify-email/:token", async (req, res) => {
   try {
     const { token } = req.params;
-    const { redirect } = req.query; // Optional: redirect to frontend after verification
+    console.log("🔍 Verification token received:", token);
+    console.log("📍 CLIENT_URL from env:", process.env.CLIENT_URL);
 
     const user = await User.findOne({
       verificationToken: token,
@@ -49,12 +50,13 @@ router.get("/verify-email/:token", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired verification token",
-      })
-      
+      console.log("❌ User not found for token:", token);
+      const errorUrl = `${process.env.BASE_URL}/workisready/verification-error?message=Invalid or expired verification token`;
+      console.log("📍 Redirecting to error URL:", errorUrl);
+      return res.redirect(errorUrl);
     }
+
+    console.log("✅ User found:", user.email);
 
     // Mark as verified
     user.isVerified = true;
@@ -67,42 +69,24 @@ router.get("/verify-email/:token", async (req, res) => {
     }
 
     await user.save();
+    
     const authToken = jwt.sign(
       { id: user._id, email: user.email },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-
-    
-    res.json({
-      success: true,
-      message: "Email verified successfully",
-      token: authToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        isVerified: user.isVerified,
-        isApproved: user.isApproved,
-      }
-    });
-
-    
-    // Redirect to frontend success page with token
-    const redirectUrl = `${process.env.FRONTEND_URL}/verification-success?token=${authToken}&userId=${user._id}`;
+    const redirectUrl = `${process.env.BASE_URL}/workisready/verification-success?token=${authToken}&userId=${user._id}`;
+    console.log("📍 Redirecting to success URL:", redirectUrl);
     return res.redirect(redirectUrl);
 
   } catch (error) {
-    console.error("Email verification error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error during email verification",
-    });
+    console.error("❌ Email verification error:", error);
+    
+    const errorUrl = `${process.env.BASE_URL}/workisready/verification-error?message=Server error during verification`;
+    console.log("📍 Redirecting to error URL:", errorUrl);
+    return res.redirect(errorUrl);
   }
-
- 
 });
 
 
@@ -279,6 +263,7 @@ router.post("/login", async (req, res) => {
 });
 
 // ✅ UPDATE REGISTRATION TO SEND VERIFICATION EMAIL
+// ✅ UPDATE REGISTRATION TO SEND RESPONSE IMMEDIATELY
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -312,120 +297,112 @@ router.post("/register", async (req, res) => {
       name,
       email,
       password,
-      // emailVerificationToken,
-      // emailVerificationExpires,
-      // isEmailVerified: false,
-      // isApproved: false,
     });
 
     const verificationToken = user.generateVerificationToken();
     await user.save();
     console.log("✅ User created:", user._id);
 
+    // ✅ SEND RESPONSE IMMEDIATELY - before sending email
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || "smtp.gmail.com",
-      port: process.env.EMAIL_PORT || 587,
-      secure: process.env.EMAIL_SECURE === "true",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+    const userResponse = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      isVerified: false,
+      isApproved: false,
+    };
+
+    // Send success response right away
+    res.status(201).json({
+      success: true,
+      message: "Registration successful! Please check your email to verify your account.",
+      user: userResponse,
+      token: token,
     });
 
-    // ✅ FIXED: Use API_URL instead of FRONTEND_URL
-    const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${verificationToken}`;
-    console.log("🔗 Verification URL:", verificationUrl);
+    // ✅ SEND EMAIL IN THE BACKGROUND (don't await)
+    // This won't block the response
+    try {
+      const transporter = nodemailer.createTransport({
+        host: process.env.EMAIL_HOST || "smtp.gmail.com",
+        port: process.env.EMAIL_PORT || 587,
+        secure: process.env.EMAIL_SECURE === "true",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+      });
 
-    // // Send email asynchronously
-    // setTimeout(async () => {
-    //   try {
-    //     const transporter = nodemailer.createTransport({
-    //       service: "gmail",
-    //       auth: {
-    //         user: process.env.EMAIL_USER,
-    //         pass: process.env.EMAIL_PASS,
-    //       },
-    //     });
-
-        await transporter.sendMail({
-          from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
-          to: email,
-          subject: "Verify Your WorkisReady Account",
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="text-align: center; background-color: #0099CC; color: white; padding: 20px; border-radius: 10px 10px 0 0;">
-            <h1>WorkIsReady</h1>
-          </div>
-          <div style="padding: 30px; background-color: #f9f9f9; border-radius: 0 0 10px 10px;">
-            <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
-            <p>Hello <strong>${name}</strong>,</p>
-            <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
-            
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verificationUrl}" 
-                style="background-color: #0099CC; color: white; padding: 12px 30px; 
-                      text-decoration: none; border-radius: 5px; font-weight: bold;
-                      display: inline-block;">
-                Verify Email Address
-              </a>
+      const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${verificationToken}`;
+      
+      await transporter.sendMail({
+        from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Verify Your WorkisReady Account",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="text-align: center; background-color: #0099CC; color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+              <h1>WorkIsReady</h1>
             </div>
-            
-            <p>Or copy and paste this link in your browser:</p>
-            <div style="word-break: break-all; color: #666; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #ddd; margin: 15px 0;">
-              ${verificationUrl}
+            <div style="padding: 30px; background-color: #f9f9f9; border-radius: 0 0 10px 10px;">
+              <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
+              <p>Hello <strong>${name}</strong>,</p>
+              <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${verificationUrl}" 
+                  style="background-color: #0099CC; color: white; padding: 12px 30px; 
+                        text-decoration: none; border-radius: 5px; font-weight: bold;
+                        display: inline-block;">
+                  Verify Email Address
+                </a>
+              </div>
+              
+              <p>Or copy and paste this link in your browser:</p>
+              <div style="word-break: break-all; color: #666; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #ddd; margin: 15px 0;">
+                ${verificationUrl}
+              </div>
+              
+              <p>This verification link will expire in 24 hours.</p>
+              <p>If you didn't create an account with WorkisReady, please ignore this email.</p>
+              
+              <p>Best regards,<br>The WorkisReady Team</p>
             </div>
-            
-            <p>This verification link will expire in 24 hours.</p>
-            <p>If you didn't create an account with WorkisReady, please ignore this email.</p>
-            
-            <p>Best regards,<br>The WorkisReady Team</p>
           </div>
-        </div>
-          `,
-        });
-        
-        console.log("✅ Verification email sent to:", email);
+        `,
+      });
+      
+      console.log("✅ Verification email sent to:", email);
+    } catch (emailError) {
+      // Log email error but don't affect the response
+      console.error("❌ Failed to send verification email:", emailError);
+    }
 
-        //Generate JWT token
-        const token = jwt.sign(
-          { id: user._id },
-          process.env.JWT_SECRET,
-          { expiresIn: "7d" }
-        );
+  } catch (error) {
+    console.error("❌ Registration error:", error);
 
-        const userResponse = {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          isVerified: false,
-          isApproved: false,
-        };
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists with this email",
+      });
+    }
 
-        res.status(201).json({
-          success: true,
-          message: "Registration successful! Please check your email to verify your account.",
-          user: userResponse,
-          token: token,
-        });
-
-        
-      } catch (error) {
-        console.error("❌ Registration error:", error);
-
-        if (error.code === 11000) {
-          return res.status(400).json({
-            success: false,
-            message: "User already exists with this email",
-          });
-        }
-
-        res.status(500).json({
-          success: false,
-          message: "Server error during registration: " + error.message,
-        });
-      }
-    });
+    // Only send error response if we haven't already sent success
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: "Server error during registration: " + error.message,
+      });
+    }
+  }
+});
 
    
 
@@ -497,7 +474,7 @@ router.post("/forgot-password", async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    const resetURL = `${process.env.BASE_URL}/reset-password/${resetToken}`;
+    const resetURL = `${process.env.BASE_URL}/workisready/reset-password/${resetToken}`;
 
     // ✅ Make sure transporter is defined
     const transporter = nodemailer.createTransport({
@@ -534,35 +511,147 @@ router.post("/reset-password", async (req, res) => {
   try {
     const { token, password, confirmPassword } = req.body;
 
-    // Validations...
-    
+    if (password !== confirmPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Passwords do not match" 
+      });
+    }
+
     const user = await User.findOne({
       resetToken: token,
       resetTokenExpiry: { $gt: Date.now() },
     });
 
-    if (!user) return res.status(400).json({ success: false, message: "Invalid or expired token" });
+    if (!user) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid or expired token" 
+      });
+    }
 
-    // Manually hash password
-    const salt = await bcrypt.genSalt(12);
-    user.password = await bcrypt.hash(password, salt);
-
+    // ✅ JUST SET THE PLAIN PASSWORD - let the pre-save hook hash it
+    user.password = password;
+    
+    // Clear reset token fields
     user.resetToken = undefined;
     user.resetTokenExpiry = undefined;
 
-    // 🚀 Prevent pre-save hook from hashing it again
-    user.skipPasswordHashing = true;
+    // ❌ REMOVE all this manual hashing:
+    // const salt = await bcrypt.genSalt(12);
+    // user.password = await bcrypt.hash(password, salt);
+    // user.skipPasswordHashing = true;
 
-    await user.save({ validateBeforeSave: false });
+    await user.save(); // The pre-save hook will hash it automatically
 
-    res.json({ success: true, message: "Password has been reset successfully!" });
+    res.json({ 
+      success: true, 
+      message: "Password has been reset successfully!" 
+    });
 
   } catch (error) {
     console.error("Reset password error:", error);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error" 
+    });
   }
 });
 
+
+// ✅ VALIDATE RESET TOKEN
+router.get("/validate-reset-token/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const user = await User.findOne({
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Token is valid",
+    });
+  } catch (error) {
+    console.error("Token validation error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error during token validation",
+    });
+  }
+});
+
+
+
+// DEBUG: Test password comparison directly
+router.post("/debug-password", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    const user = await User.findOne({ email }).select("+password");
+    if (!user) {
+      return res.json({ 
+        success: false, 
+        message: "User not found",
+        email 
+      });
+    }
+    
+    // Log the stored password hash
+    console.log("🔍 User found:", {
+      id: user._id,
+      email: user.email,
+      passwordHash: user.password ? user.password.substring(0, 30) + "..." : "MISSING",
+      hasCompareMethod: typeof user.comparePassword === 'function'
+    });
+    
+    // Test 1: Using the model's comparePassword method
+    let methodResult = false;
+    try {
+      methodResult = await user.comparePassword(password);
+      console.log("📊 comparePassword result:", methodResult);
+    } catch (err) {
+      console.error("❌ comparePassword error:", err);
+    }
+    
+    // Test 2: Direct bcrypt comparison
+    let directResult = false;
+    try {
+      directResult = await bcrypt.compare(password, user.password);
+      console.log("📊 bcrypt.compare result:", directResult);
+    } catch (err) {
+      console.error("❌ bcrypt.compare error:", err);
+    }
+    
+    // Test 3: Check if password field exists and is properly formatted
+    const passwordValid = user.password && 
+                         typeof user.password === 'string' && 
+                         user.password.startsWith('$2b$');
+    
+    res.json({
+      success: true,
+      userExists: true,
+      passwordFieldExists: !!user.password,
+      passwordFormat: passwordValid ? "Valid bcrypt hash" : "Invalid format",
+      comparePasswordMethod: methodResult,
+      bcryptCompare: directResult,
+      // Don't send the actual hash in production!
+      hashPreview: user.password ? user.password.substring(0, 20) + "..." : null
+    });
+    
+  } catch (error) {
+    console.error("❌ Debug error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 
 export default router;

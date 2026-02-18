@@ -9,8 +9,8 @@ router.get("/jobs-by-region", async (req, res) => {
     
     // Define all 16 Ghana regions in alphabetical order
     const allGhanaRegions = [
-      'Ahafo', 'Ashanti', 'Bono', 'Bono East', 'Brong-Ahafo', 
-      'Central', 'Eastern', 'Greater Accra', 'Northern', 'Oti', 
+      'Ahafo', 'Ashanti', 'Bono', 'Bono East', 
+      'Central', 'Eastern', 'Greater Accra', 'North East', 'Northern', 'Oti', 
       'Savannah', 'Upper East', 'Upper West', 'Volta', 'Western', 
       'Western North'
     ];

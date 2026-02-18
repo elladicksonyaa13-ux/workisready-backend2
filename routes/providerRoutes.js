@@ -7,7 +7,9 @@ import fs from "fs";
 import { adminAuth } from "../middleware/auth.js";
 import { normalizeFilePath } from '../utils/pathUtils.js';
 import mongoose from "mongoose";
-import ProviderUpdateRequest from "../models/ProviderUpdateRequest.js"; // ✅ ADD THIS IMPORT
+import ProviderUpdateRequest from "../models/ProviderUpdateRequest.js"; 
+import User from "../models/User.js"; 
+
 
 
 
@@ -54,8 +56,38 @@ const upload = multer({
   }
 });
 
+// Get providers with exact category match
+router.get("/by-exact-category", async (req, res) => {
+  try {
+    const { category, approved } = req.query;
+    
+    let filter = {};
+    
+    if (approved === 'true') {
+      filter.isApproved = true;
+    }
+    
+    if (category) {
+      // This ensures exact match in the array
+      filter.category = category;
+    }
+    
+    const providers = await Provider.find(filter)
+      .sort({ createdAt: -1 });
+    
+    res.json({ 
+      success: true, 
+      providers,
+      count: providers.length,
+      category: category
+    });
+    
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
-// In your providerRoutes.js file
+
 router.get("/providers-by-region", async (req, res) => {
   try {
     console.log("🔄 Fetching providers by region...");
@@ -65,8 +97,8 @@ router.get("/providers-by-region", async (req, res) => {
     
     // Define all Ghana regions in alphabetical order
     const allGhanaRegions = [
-      'Ahafo', 'Ashanti', 'Bono', 'Bono East', 'Brong-Ahafo', 
-      'Central', 'Eastern', 'Greater Accra', 'Northern', 'Oti', 
+      'Ahafo', 'Ashanti', 'Bono', 'Bono East', 
+      'Central', 'Eastern', 'Greater Accra', 'North East', 'Northern', 'Oti', 
       'Savannah', 'Upper East', 'Upper West', 'Volta', 'Western', 
       'Western North'
     ];
@@ -764,9 +796,7 @@ router.delete("/sample/:index", auth, async (req, res) => {
   }
 });
 
-// -------------------------------------------------------------------------------
 // POST: Add a review
-// ---------------------------------------------------------------------------------
 router.post("/:id/review", auth, async (req, res) => {
   try {
     const { rating, comment } = req.body;
@@ -788,21 +818,34 @@ router.post("/:id/review", auth, async (req, res) => {
       });
     }
 
+    // ✅ FIX: Get the user's name from the User model
+    const user = await User.findById(req.user._id).select('firstName surname fname sname');
+    
+    // Construct the reviewer's name
+    let reviewerName = "Anonymous";
+    if (user) {
+      reviewerName = `${user.firstName || user.fname || ''} ${user.surname || user.sname || ''}`.trim();
+      if (!reviewerName) {
+        reviewerName = user.email || "Anonymous";
+      }
+    }
+
     const review = {
-      userId: req.user.id,
-      name: req.user.email, // email since WorkisReady shows only email
-      rating,
+      userId: req.user._id,
+      name: reviewerName, // ✅ Set the name here
+      rating: Number(rating),
       comment,
+      date: new Date()
     };
 
     provider.reviews.push(review);
-    provider.calculateRating();
+    provider.calculateRating(); // This method should update averageRating
     await provider.save();
 
     res.json({ success: true, message: "Review added", provider });
   } catch (err) {
-    console.log(err);
-    res.json({ success: false, message: "Error adding review" });
+    console.error("Error adding review:", err);
+    res.status(500).json({ success: false, message: "Error adding review" });
   }
 });
 

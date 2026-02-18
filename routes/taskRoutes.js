@@ -50,6 +50,42 @@ router.get("/user/my-tasks", auth, async (req, res) => {
 });
 
 
+// In taskRoutes.js - Get tasks by exact category
+router.get("/by-exact-category", async (req, res) => {
+  try {
+    const { category, status } = req.query;
+    
+    let filter = {};
+    
+    if (status) {
+      filter.status = status;
+    } else {
+      filter.status = 'open';
+    }
+    
+    if (category) {
+      // Exact match in category array
+      filter.category = category;
+    }
+    
+    const tasks = await Task.find(filter)
+      .sort({ createdAt: -1 });
+    
+    res.json({ 
+      success: true, 
+      tasks,
+      count: tasks.length,
+      category: category,
+      status: filter.status
+    });
+    
+  } catch (error) {
+    console.error("Error in exact category search:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+
 // ✅ POST new task (UPDATED VERSION)
 router.post("/", auth, upload.array("images", 5), async (req, res) => {
   try {
@@ -161,8 +197,11 @@ router.get("/search", async (req, res) => {
         { description: { $regex: query, $options: "i" } },
         { category: { $regex: query, $options: "i" } },
         { location: { $regex: query, $options: "i" } },
+        { district: { $regex: query, $options: "i"} },
+        { region: { $regex: query, $options: "i"} },
+        { city: { $regex: query, $options: "i"} },
       ],
-    }).select("title category description _id location budget");
+    }).select("title category description _id location budget district region city");
 
     res.json({ success: true, tasks });
   } catch (error) {
