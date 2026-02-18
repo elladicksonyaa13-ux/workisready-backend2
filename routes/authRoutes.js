@@ -1,3 +1,4 @@
+import { Resend } from 'resend';
 import express from "express";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
@@ -8,6 +9,8 @@ import { googleAuth } from "../controllers/googleAuthController.js";
 import { googleAuthCallback } from "../controllers/googleAuthController.js";
 // import { sendVerificationEmail } from "../controllers/authController.js";
 
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 
 const router = express.Router();
@@ -328,61 +331,107 @@ router.post("/register", async (req, res) => {
 
     // ✅ SEND EMAIL IN THE BACKGROUND (don't await)
     // This won't block the response
-    try {
-      const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST || "smtp.gmail.com",
-        port: process.env.EMAIL_PORT || 587,
-        secure: process.env.EMAIL_SECURE === "true",
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      });
+    // try {
+    //   const transporter = nodemailer.createTransport({
+    //     host: process.env.EMAIL_HOST || "smtp.gmail.com",
+    //     port: process.env.EMAIL_PORT || 587,
+    //     secure: process.env.EMAIL_SECURE === "true",
+    //     auth: {
+    //       user: process.env.EMAIL_USER,
+    //       pass: process.env.EMAIL_PASS,
+    //     },
+    //   });
 
-      const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${verificationToken}`;
+    //   const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${verificationToken}`;
       
-      await transporter.sendMail({
-        from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "Verify Your WorkisReady Account",
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="text-align: center; background-color: #0099CC; color: white; padding: 20px; border-radius: 10px 10px 0 0;">
-              <h1>WorkIsReady</h1>
-            </div>
-            <div style="padding: 30px; background-color: #f9f9f9; border-radius: 0 0 10px 10px;">
-              <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
-              <p>Hello <strong>${name}</strong>,</p>
-              <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
+    //   await transporter.sendMail({
+    //     from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
+    //     to: email,
+    //     subject: "Verify Your WorkisReady Account",
+    //     html: `
+    //       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    //         <div style="text-align: center; background-color: #0099CC; color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+    //           <h1>WorkIsReady</h1>
+    //         </div>
+    //         <div style="padding: 30px; background-color: #f9f9f9; border-radius: 0 0 10px 10px;">
+    //           <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
+    //           <p>Hello <strong>${name}</strong>,</p>
+    //           <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
               
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${verificationUrl}" 
-                  style="background-color: #0099CC; color: white; padding: 12px 30px; 
-                        text-decoration: none; border-radius: 5px; font-weight: bold;
-                        display: inline-block;">
-                  Verify Email Address
-                </a>
-              </div>
+    //           <div style="text-align: center; margin: 30px 0;">
+    //             <a href="${verificationUrl}" 
+    //               style="background-color: #0099CC; color: white; padding: 12px 30px; 
+    //                     text-decoration: none; border-radius: 5px; font-weight: bold;
+    //                     display: inline-block;">
+    //               Verify Email Address
+    //             </a>
+    //           </div>
               
-              <p>Or copy and paste this link in your browser:</p>
-              <div style="word-break: break-all; color: #666; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #ddd; margin: 15px 0;">
-                ${verificationUrl}
-              </div>
+    //           <p>Or copy and paste this link in your browser:</p>
+    //           <div style="word-break: break-all; color: #666; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #ddd; margin: 15px 0;">
+    //             ${verificationUrl}
+    //           </div>
               
-              <p>This verification link will expire in 24 hours.</p>
-              <p>If you didn't create an account with WorkisReady, please ignore this email.</p>
+    //           <p>This verification link will expire in 24 hours.</p>
+    //           <p>If you didn't create an account with WorkisReady, please ignore this email.</p>
               
-              <p>Best regards,<br>The WorkisReady Team</p>
-            </div>
+    //           <p>Best regards,<br>The WorkisReady Team</p>
+    //         </div>
+    //       </div>
+    //     `,
+    //   });
+      
+    //   console.log("✅ Verification email sent to:", email);
+    // } catch (emailError) {
+    //   // Log email error but don't affect the response
+    //   console.error("❌ Failed to send verification email:", emailError);
+    // }
+    // ✅ SEND EMAIL IN THE BACKGROUND (don't await)
+try {
+  const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${verificationToken}`;
+  
+  await resend.emails.send({
+    from: process.env.FROM_EMAIL || 'WorkisReady <on@resend.dev>', // Use on@resend.dev for testing
+    to: email,
+    subject: 'Verify Your WorkisReady Account',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; background-color: #0099CC; color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+          <h1>WorkIsReady</h1>
+        </div>
+        <div style="padding: 30px; background-color: #f9f9f9; border-radius: 0 0 10px 10px;">
+          <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
+          <p>Hello <strong>${name}</strong>,</p>
+          <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" 
+              style="background-color: #0099CC; color: white; padding: 12px 30px; 
+                    text-decoration: none; border-radius: 5px; font-weight: bold;
+                    display: inline-block;">
+              Verify Email Address
+            </a>
           </div>
-        `,
-      });
-      
-      console.log("✅ Verification email sent to:", email);
-    } catch (emailError) {
-      // Log email error but don't affect the response
-      console.error("❌ Failed to send verification email:", emailError);
-    }
+          
+          <p>Or copy and paste this link in your browser:</p>
+          <div style="word-break: break-all; color: #666; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #ddd; margin: 15px 0;">
+            ${verificationUrl}
+          </div>
+          
+          <p>This verification link will expire in 24 hours.</p>
+          <p>If you didn't create an account with WorkisReady, please ignore this email.</p>
+          
+          <p>Best regards,<br>The WorkisReady Team</p>
+        </div>
+      </div>
+    `,
+  });
+  
+  console.log("✅ Verification email sent to:", email);
+} catch (emailError) {
+  console.error("❌ Failed to send verification email:", emailError);
+  // Don't throw - user already got success response
+}
 
   } catch (error) {
     console.error("❌ Registration error:", error);
