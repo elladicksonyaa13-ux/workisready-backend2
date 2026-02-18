@@ -54,7 +54,7 @@ router.get("/verify-email/:token", async (req, res) => {
 
     if (!user) {
       console.log("❌ User not found for token:", token);
-      const errorUrl = `${process.env.BASE_URL}/workisready/verification-error?message=Invalid or expired verification token`;
+      const errorUrl = `${process.env.BASE_URL}/verification-error?message=Invalid or expired verification token`;
       console.log("📍 Redirecting to error URL:", errorUrl);
       return res.redirect(errorUrl);
     }
@@ -79,14 +79,14 @@ router.get("/verify-email/:token", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    const redirectUrl = `${process.env.BASE_URL}/workisready/verification-success?token=${authToken}&userId=${user._id}`;
+    const redirectUrl = `${process.env.BASE_URL}/verification-success?token=${authToken}&userId=${user._id}`;
     console.log("📍 Redirecting to success URL:", redirectUrl);
     return res.redirect(redirectUrl);
 
   } catch (error) {
     console.error("❌ Email verification error:", error);
     
-    const errorUrl = `${process.env.BASE_URL}/workisready/verification-error?message=Server error during verification`;
+    const errorUrl = `${process.env.BASE_URL}/verification-error?message=Server error during verification`;
     console.log("📍 Redirecting to error URL:", errorUrl);
     return res.redirect(errorUrl);
   }
@@ -523,7 +523,7 @@ router.post("/forgot-password", async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    const resetURL = `${process.env.BASE_URL}/workisready/reset-password/${resetToken}`;
+    const resetURL = `${process.env.BASE_URL}/reset-password/${resetToken}`;
 
     // ✅ Make sure transporter is defined
     const transporter = nodemailer.createTransport({
