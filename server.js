@@ -35,7 +35,7 @@ const __dirname = path.dirname(__filename);
 // Middleware
 const allowedOrigins = [
   process.env.BASE_URL,           // localhost:5173
-  "https://africamails.com/workisready",        // Vite
+  // "https://africamails.com/workisready",        // Vite
   "http://localhost:5174",        // alt Vite
   "http://localhost:5173",          //locall
   "http://10.0.2.2:5173",         // Android emulator → web
