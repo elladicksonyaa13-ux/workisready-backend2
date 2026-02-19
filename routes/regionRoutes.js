@@ -42,11 +42,9 @@ router.get("/jobs-by-region", async (req, res) => {
     // Get ALL open jobs
     const jobs = await Task.find({ 
       status: "open"
-    }).select("region category");
+    }).select("region category mainCategory");
     
     console.log(`✅ Found ${jobs.length} open jobs total`);
-    console.log(`✅ Jobs with regions: ${jobs.filter(j => j.region && j.region.trim()).length}`);
-    console.log(`✅ Jobs without regions: ${jobs.filter(j => !j.region || !j.region.trim()).length}`);
     
     // Group by region manually
     const regionMap = {};
@@ -65,10 +63,20 @@ router.get("/jobs-by-region", async (req, res) => {
       categories: {}
     };
     
+    // Track excluded jobs for logging
+    let excludedJobs = 0;
+    
     // Count jobs by region and category
     jobs.forEach(job => {
       const region = job.region;
       const category = job.category;
+      const mainCategory = job.mainCategory;
+      
+      // EXCLUDE if mainCategory is "Popular Jobs" or "Popular Workers"
+      if (mainCategory === "Popular Jobs" || mainCategory === "Popular Workers") {
+        excludedJobs++;
+        return; // Skip this job entirely
+      }
       
       let targetRegion = "Unspecified Region";
       
@@ -79,7 +87,6 @@ router.get("/jobs-by-region", async (req, res) => {
         // Check if region exists in our list
         const matchingRegion = allGhanaRegions.find(r => 
           r.toLowerCase() === normalizedRegion.toLowerCase() 
-          // normalizedRegion.toLowerCase().includes(r.toLowerCase())
         );
         
         if (matchingRegion) {
@@ -138,13 +145,14 @@ router.get("/jobs-by-region", async (req, res) => {
     const totalJobs = regionsArray.reduce((sum, region) => sum + region.totalJobs, 0);
     
     console.log(`✅ Returning ${regionsArray.length} regions with ${totalJobs} total jobs`);
-    console.log(`✅ Order: Alphabetical (starting with ${regionsArray[0]?.name || 'none'})`);
+    console.log(`✅ Excluded ${excludedJobs} jobs with mainCategory: "Popular Jobs" or "Popular Workers"`);
     
     res.json({
       success: true,
-      regions: regionsArray, // Already in alphabetical order
+      regions: regionsArray,
       totalJobs: totalJobs,
       totalOpenJobs: jobs.length,
+      excludedJobs: excludedJobs,
       jobsWithRegions: jobs.filter(j => j.region && j.region.trim()).length,
       jobsWithoutRegions: jobs.filter(j => !j.region || !j.region.trim()).length,
       timestamp: new Date().toISOString()

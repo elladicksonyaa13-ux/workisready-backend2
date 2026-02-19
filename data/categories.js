@@ -2,6 +2,40 @@
 
 export const serviceCategories = [
   {
+    title: "Popular Jobs",
+    services: [
+      "AC Repair",
+      "Carpentry",
+      "Cleaning",
+      "Delivery",
+      "Dish Installation",
+      "Electrical Services",
+      "Fridge Repair",
+      "Gardening",
+      "Laundry Services",
+      "Masonry",
+      "Plumbing",
+      "TV Repair"
+    ]
+  },
+  {
+    title: "Popular Workers",
+    services: [
+      "AC Repairer",
+      "Carpenter",
+      "Cleaner",
+      "Delivery Service",
+      "Dish Installer",
+      "Electrician",
+      "Fridge Repairer",
+      "Gardener",
+      "Laundry",
+      "Mason",
+      "Plumber",
+      "TV Repairer"
+    ]
+  },
+  {
     title: "Agriculture & Farming Services",
     services: [
       "Agribusiness & Consultancy",

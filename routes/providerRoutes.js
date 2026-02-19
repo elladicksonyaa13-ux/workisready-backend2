@@ -104,15 +104,50 @@ router.get("/providers-by-region", async (req, res) => {
       'Western North'
     ];
     
-    // Get providers with regions - isApproved filter removed
+    // Define Popular Worker categories to exclude
+    const popularWorkerCategories = [
+      "AC Repairer",
+      "Carpenter",
+      "Cleaner",
+      "Delivery Service",
+      "Dish Installer",
+      "Electrician",
+      "Fridge Repairer",
+      "Gardener",
+      "Laundry",
+      "Mason",
+      "Plumber",
+      "TV Repairer"
+    ];
+    
+    // Get all providers with regions - isApproved filter removed
     const providers = await Provider.find({ 
       // isApproved: true,  // <--- COMMENTED OUT
       region: { $exists: true, $ne: null, $ne: "" }
     })
-    .select("region skills averageRating")
+    .select("region skills averageRating category")
     .lean();
     
-    console.log(`✅ Found ${providers.length} providers with regions`);
+    console.log(`✅ Found ${providers.length} total providers with regions`);
+    
+    // Filter out providers whose ANY category is in the popularWorkerCategories list
+    const filteredProviders = providers.filter(provider => {
+      // If provider has no category, keep them (they might be general)
+      if (!provider.category || !Array.isArray(provider.category) || provider.category.length === 0) {
+        return true;
+      }
+      
+      // Check if ANY category matches a popular worker category
+      const hasPopularCategory = provider.category.some(cat => 
+        popularWorkerCategories.includes(cat)
+      );
+      
+      // EXCLUDE if they have ANY popular worker category
+      return !hasPopularCategory;
+    });
+    
+    console.log(`✅ After filtering: ${filteredProviders.length} providers remain`);
+    console.log(`✅ Excluded ${providers.length - filteredProviders.length} providers with Popular Worker categories`);
     
     // Initialize region map
     const regionStats = {};
@@ -125,7 +160,7 @@ router.get("/providers-by-region", async (req, res) => {
     });
     
     // Count providers and aggregate data by region
-    providers.forEach(provider => {
+    filteredProviders.forEach(provider => {
       const region = provider.region ? provider.region.trim() : '';
       
       if (!region) return;
@@ -200,6 +235,7 @@ router.get("/providers-by-region", async (req, res) => {
     const totalSkills = regionsArray.reduce((sum, r) => sum + r.totalSkills, 0);
     
     console.log(`✅ Returning ${regionsArray.length} regions with ${totalProviders} providers`);
+    console.log(`✅ Regions: ${regionsArray.map(r => `${r.name} (${r.providerCount})`).join(', ')}`);
     
     res.json({
       success: true,

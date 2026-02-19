@@ -55,14 +55,14 @@ const userSchema = new mongoose.Schema(
     // In models/User.js
 phone: {
   type: String,
-  default: "",
+  default: null,
   unique: true,
   sparse: true, // This allows multiple null/empty values
   trim: true,
 },
 whatsapp: {
   type: String,
-  default: "",
+  default: null,
   unique: true,
   sparse: true,
   trim: true,
