@@ -59,13 +59,14 @@ const upload = multer({
 // Get providers with exact category match
 router.get("/by-exact-category", async (req, res) => {
   try {
-    const { category, approved } = req.query;
+    const { category } = req.query;
     
     let filter = {};
     
-    if (approved === 'true') {
-      filter.isApproved = true;
-    }
+    // Commented out isApproved filter
+    // if (approved === 'true') {
+    //   filter.isApproved = true;
+    // }
     
     if (category) {
       // This ensures exact match in the array
@@ -103,15 +104,15 @@ router.get("/providers-by-region", async (req, res) => {
       'Western North'
     ];
     
-    // Get approved providers with regions
+    // Get providers with regions - isApproved filter removed
     const providers = await Provider.find({ 
-      isApproved: true,
+      // isApproved: true,  // <--- COMMENTED OUT
       region: { $exists: true, $ne: null, $ne: "" }
     })
     .select("region skills averageRating")
     .lean();
     
-    console.log(`✅ Found ${providers.length} approved providers with regions`);
+    console.log(`✅ Found ${providers.length} providers with regions`);
     
     // Initialize region map
     const regionStats = {};
@@ -276,7 +277,7 @@ router.get("/region/:regionName/category-counts", async (req, res) => {
     const results = await Provider.aggregate([
       {
         $match: {
-          isApproved: true,
+          // isApproved: true,  // <--- COMMENTED OUT
           region: { 
             $regex: new RegExp(`^${regionName}$`, 'i') 
           },
@@ -315,7 +316,7 @@ router.get("/region/:regionName/category-counts", async (req, res) => {
     
     // Get total providers in region
     const totalProviders = await Provider.countDocuments({
-      isApproved: true,
+      // isApproved: true,  // <--- COMMENTED OUT
       region: { $regex: new RegExp(`^${regionName}$`, 'i') }
     });
     
@@ -343,23 +344,24 @@ router.get("/region-category", async (req, res) => {
   try {
     const { region, category, page = 1, limit = 20, sort = "rating" } = req.query;
     
-    const query = {
-      isApproved: true
-    };
+    // Build query object
+    const query = {};
     
-    // Region filter
+    // Add region filter if provided
     if (region) {
       query.region = { 
         $regex: new RegExp(`^${region}$`, 'i') 
       };
     }
     
-    // Category filter - providers can have multiple categories
+    // Add category filter if provided
     if (category) {
       query.category = { 
         $in: [category] // Match any provider that has this category in their array
       };
     }
+    
+    console.log("🔍 Region-category query:", JSON.stringify(query));
     
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
@@ -387,6 +389,8 @@ router.get("/region-category", async (req, res) => {
         .limit(parseInt(limit)),
       Provider.countDocuments(query)
     ]);
+    
+    console.log(`✅ Found ${providers.length} providers matching query`);
     
     // Process providers to add virtuals
     const processedProviders = providers.map(provider => {
@@ -432,7 +436,7 @@ router.get("/region/:regionName/categories", async (req, res) => {
     const categories = await Provider.aggregate([
       {
         $match: {
-          isApproved: true,
+          // isApproved: true,  // <--- COMMENTED OUT
           region: { 
             $regex: new RegExp(`^${regionName}$`, 'i') 
           }
@@ -824,7 +828,8 @@ router.post("/:id/review", auth, async (req, res) => {
     // Construct the reviewer's name
     let reviewerName = "Anonymous";
     if (user) {
-      reviewerName = `${user.firstName || user.fname || ''} ${user.surname || user.sname || ''}`.trim();
+      // reviewerName = `${user.firstName || user.fname || ''} ${user.surname || user.sname || ''}`.trim();
+      reviewerName = user.fname || user.firstName || "Anonymous";
       if (!reviewerName) {
         reviewerName = user.email || "Anonymous";
       }

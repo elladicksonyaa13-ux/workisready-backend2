@@ -52,14 +52,21 @@ const userSchema = new mongoose.Schema(
     },
     
     // Contact Information
-    phone: {
-      type: String,
-      default: "",
-    },
-    whatsapp: {
-      type: String,
-      default: "",
-    },
+    // In models/User.js
+phone: {
+  type: String,
+  default: "",
+  unique: true,
+  sparse: true, // This allows multiple null/empty values
+  trim: true,
+},
+whatsapp: {
+  type: String,
+  default: "",
+  unique: true,
+  sparse: true,
+  trim: true,
+},
     location: {
       type: String,
       default: "",

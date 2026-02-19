@@ -85,6 +85,36 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
         }
       }
     }
+
+    // ✅ CHECK PHONE UNIQUENESS (if phone is being updated/changed)
+    if (updates.phone && updates.phone !== user.phone) {
+      const existingPhone = await User.findOne({ 
+        phone: updates.phone, 
+        _id: { $ne: req.user.id } // Exclude current user
+      });
+      
+      if (existingPhone) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Phone number already in use by another account" 
+        });
+      }
+    }
+
+    // ✅ CHECK WHATSAPP UNIQUENESS (if whatsapp is being updated/changed)
+    if (updates.whatsapp && updates.whatsapp !== user.whatsapp) {
+      const existingWhatsApp = await User.findOne({ 
+        whatsapp: updates.whatsapp, 
+        _id: { $ne: req.user.id } // Exclude current user
+      });
+      
+      if (existingWhatsApp) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "WhatsApp number already in use by another account" 
+        });
+      }
+    }
     
     // Update user fields directly - IMMEDIATE SAVE
     const fieldsToUpdate = [
@@ -125,7 +155,7 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
     res.json({
       success: true,
       message: allRequiredFilled 
-        ? "Profile saved successfully! Your information is now complete." 
+        ? "Profile saved successfully! Your information is now complete and locked." 
         : "Profile updated successfully!",
       user: userResponse,
       profileComplete: user.profileComplete
@@ -133,6 +163,16 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
 
   } catch (error) {
     console.error("❌ Error updating profile:", error);
+    
+    // Handle duplicate key errors (just in case)
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ 
+        success: false, 
+        message: `${field} already in use by another account` 
+      });
+    }
+    
     res.status(500).json({ success: false, message: "Server error" });
   }
 });

@@ -293,7 +293,7 @@ router.get("/admin/search/services", adminAuth, async (req, res) => {
     const servicesWithCounts = await Promise.all(services.map(async (service) => {
       const providerCount = await Provider.countDocuments({
         services: service._id,
-        isApproved: true
+        // isApproved: true
       });
       
       return {
@@ -324,7 +324,7 @@ router.get("/admin/search/providers", adminAuth, async (req, res) => {
         { businessName: { $regex: q, $options: 'i' } },
         { category: { $regex: q, $options: 'i' } }
       ],
-      isApproved: true
+      // isApproved: true
     };
 
     if (serviceId) {
@@ -380,7 +380,7 @@ router.get("/featured-providers", async (req, res) => {
       .populate({
         path: 'providerId',
         select: 'firstName surname otherName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt isApproved',
-        match: { isApproved: true }
+        // match: { isApproved: true }
       })
       .sort({ order: 1, createdAt: -1 })
       .limit(8);
@@ -412,7 +412,7 @@ router.get("/featured-providers", async (req, res) => {
       const Provider = mongoose.model('Provider');
       const providersFromFlag = await Provider.find({ 
         isFeatured: true,
-        isApproved: true
+        // isApproved: true
       })
       .select('firstName surname otherName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt')
       .sort({ createdAt: -1 })
