@@ -73,7 +73,7 @@ router.get("/jobs-by-region", async (req, res) => {
       const mainCategory = job.mainCategory;
       
       // EXCLUDE if mainCategory is "Popular Jobs" or "Popular Workers"
-      if (mainCategory === "Popular Jobs" || mainCategory === "Popular Workers") {
+      if (mainCategory === mainCategory === "Popular Workers") {
         excludedJobs++;
         return; // Skip this job entirely
       }

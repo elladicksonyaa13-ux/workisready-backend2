@@ -353,38 +353,55 @@ router.get("/region-stats/:regionName", async (req, res) => {
     // Clean region name
     const cleanRegion = regionName.replace(/ region$/i, '').trim();
     
-    // Use MongoDB aggregation for fast counting
-    const stats = await Task.aggregate([
-      {
-        $match: {
-          status: 'open',
-          region: { $regex: new RegExp(`^${cleanRegion}$`, 'i') },
-          mainCategory: { $exists: true, $ne: null, $ne: '' }
-        }
-      },
-      {
-        $group: {
-          _id: '$mainCategory',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $project: {
-          category: '$_id',
-          count: 1,
-          _id: 0
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-    
-    // Get total jobs in region
-    const totalJobs = await Task.countDocuments({
+    // Get all open jobs in this region
+    const jobs = await Task.find({
       status: 'open',
       region: { $regex: new RegExp(`^${cleanRegion}$`, 'i') }
+    }).select('mainCategory category');
+    
+    console.log(`✅ Found ${jobs.length} jobs in ${regionName}`);
+    
+    // Create a map to store counts
+    const categoryCountMap = new Map();
+    
+    // Process each job
+    jobs.forEach(job => {
+      // Count by mainCategory
+      if (job.mainCategory) {
+        const mainCat = job.mainCategory;
+        categoryCountMap.set(mainCat, (categoryCountMap.get(mainCat) || 0) + 1);
+      }
+      
+      // Also count individual categories if they exist
+      if (job.category) {
+        // Handle both string and array categories
+        if (Array.isArray(job.category)) {
+          job.category.forEach(cat => {
+            if (cat && cat.trim()) {
+              categoryCountMap.set(cat, (categoryCountMap.get(cat) || 0) + 1);
+            }
+          });
+        } else if (typeof job.category === 'string') {
+          // Split comma-separated categories
+          const categories = job.category.split(',').map(c => c.trim()).filter(c => c);
+          categories.forEach(cat => {
+            categoryCountMap.set(cat, (categoryCountMap.get(cat) || 0) + 1);
+          });
+        }
+      }
     });
     
-    console.log(`✅ Region stats for ${regionName}: ${totalJobs} total jobs, ${stats.length} categories`);
+    // Convert map to array format
+    const stats = Array.from(categoryCountMap.entries()).map(([category, count]) => ({
+      category,
+      count
+    })).sort((a, b) => b.count - a.count);
+    
+    // Get total jobs in region
+    const totalJobs = jobs.length;
+    
+    console.log(`✅ Region stats for ${regionName}: ${totalJobs} total jobs, ${stats.length} categories/services`);
+    console.log(`✅ Top 5 stats:`, stats.slice(0, 5));
     
     res.json({
       success: true,

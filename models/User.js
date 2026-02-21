@@ -206,8 +206,8 @@ userSchema.methods.toSafeObject = function () {
 };
 
 // Add indexes for better performance
-userSchema.index({ email: 1 });
-userSchema.index({ googleId: 1 });
-userSchema.index({ authProvider: 1 });
+// userSchema.index({ email: 1 });
+// userSchema.index({ googleId: 1 });
+// userSchema.index({ authProvider: 1 });
 
 export default mongoose.model("User", userSchema);

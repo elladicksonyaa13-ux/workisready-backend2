@@ -104,52 +104,17 @@ router.get("/providers-by-region", async (req, res) => {
       'Western North'
     ];
     
-    // Define Popular Worker categories to exclude
-    const popularWorkerCategories = [
-      "AC Repairer",
-      "Carpenter",
-      "Cleaner",
-      "Delivery Service",
-      "Dish Installer",
-      "Electrician",
-      "Fridge Repairer",
-      "Gardener",
-      "Laundry",
-      "Mason",
-      "Plumber",
-      "TV Repairer"
-    ];
-    
-    // Get all providers with regions - isApproved filter removed
+    // Get ALL providers with regions - NO FILTERING
     const providers = await Provider.find({ 
-      // isApproved: true,  // <--- COMMENTED OUT
       region: { $exists: true, $ne: null, $ne: "" }
     })
     .select("region skills averageRating category")
     .lean();
     
     console.log(`✅ Found ${providers.length} total providers with regions`);
+    console.log(`✅ Including ALL providers (popular workers are now counted)`);
     
-    // Filter out providers whose ANY category is in the popularWorkerCategories list
-    const filteredProviders = providers.filter(provider => {
-      // If provider has no category, keep them (they might be general)
-      if (!provider.category || !Array.isArray(provider.category) || provider.category.length === 0) {
-        return true;
-      }
-      
-      // Check if ANY category matches a popular worker category
-      const hasPopularCategory = provider.category.some(cat => 
-        popularWorkerCategories.includes(cat)
-      );
-      
-      // EXCLUDE if they have ANY popular worker category
-      return !hasPopularCategory;
-    });
-    
-    console.log(`✅ After filtering: ${filteredProviders.length} providers remain`);
-    console.log(`✅ Excluded ${providers.length - filteredProviders.length} providers with Popular Worker categories`);
-    
-    // Initialize region map
+    // Initialize region map with ALL regions (even zero counts)
     const regionStats = {};
     allGhanaRegions.forEach(region => {
       regionStats[region] = {
@@ -159,8 +124,8 @@ router.get("/providers-by-region", async (req, res) => {
       };
     });
     
-    // Count providers and aggregate data by region
-    filteredProviders.forEach(provider => {
+    // Count ALL providers and aggregate data by region (NO FILTERING)
+    providers.forEach(provider => {
       const region = provider.region ? provider.region.trim() : '';
       
       if (!region) return;
@@ -193,56 +158,52 @@ router.get("/providers-by-region", async (req, res) => {
       }
     });
     
-    // Prepare response
-    const regionsArray = allGhanaRegions
-      .map(regionName => {
-        const stats = regionStats[regionName];
-        
-        // Skip regions with no providers
-        if (stats.providerCount === 0) return null;
-        
-        // Calculate average rating
-        const averageRating = stats.providerCount > 0 && stats.totalRating > 0 
-          ? parseFloat((stats.totalRating / stats.providerCount).toFixed(1))
-          : 0;
-        
-        // Get top 3 skills
-        const skillsArray = Object.entries(stats.skills);
-        const topSkills = {};
-        skillsArray
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 3)
-          .forEach(([skill, count]) => {
-            topSkills[skill] = count;
-          });
-        
-        // Calculate total skills
-        const totalSkills = Object.values(stats.skills).reduce((sum, count) => sum + count, 0);
-        
-        return {
-          _id: regionName.toLowerCase().replace(/\s+/g, '-'),
-          name: regionName,
-          providerCount: stats.providerCount,
-          skills: topSkills,
-          totalSkills: totalSkills,
-          averageRating: averageRating,
-          hasProviders: true
-        };
-      })
-      .filter(region => region !== null); // Remove null entries
+    // Prepare response - INCLUDE ALL REGIONS even with zero providers
+    const regionsArray = allGhanaRegions.map(regionName => {
+      const stats = regionStats[regionName];
+      
+      // Calculate average rating
+      const averageRating = stats.providerCount > 0 && stats.totalRating > 0 
+        ? parseFloat((stats.totalRating / stats.providerCount).toFixed(1))
+        : 0;
+      
+      // Get top 3 skills
+      const skillsArray = Object.entries(stats.skills);
+      const topSkills = {};
+      skillsArray
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .forEach(([skill, count]) => {
+          topSkills[skill] = count;
+        });
+      
+      // Calculate total skills
+      const totalSkills = Object.values(stats.skills).reduce((sum, count) => sum + count, 0);
+      
+      return {
+        _id: regionName.toLowerCase().replace(/\s+/g, '-'),
+        name: regionName,
+        providerCount: stats.providerCount,
+        skills: topSkills,
+        totalSkills: totalSkills,
+        averageRating: averageRating,
+        hasProviders: stats.providerCount > 0
+      };
+    });
     
     const totalProviders = regionsArray.reduce((sum, r) => sum + r.providerCount, 0);
     const totalSkills = regionsArray.reduce((sum, r) => sum + r.totalSkills, 0);
+    const regionsWithProviders = regionsArray.filter(r => r.hasProviders).length;
     
     console.log(`✅ Returning ${regionsArray.length} regions with ${totalProviders} providers`);
-    console.log(`✅ Regions: ${regionsArray.map(r => `${r.name} (${r.providerCount})`).join(', ')}`);
+    console.log(`✅ Regions with providers: ${regionsWithProviders}`);
     
     res.json({
       success: true,
       regions: regionsArray,
       totalProviders: totalProviders,
       totalSkills: totalSkills,
-      regionsWithProviders: regionsArray.length,
+      regionsWithProviders: regionsWithProviders,
       timestamp: new Date().toISOString()
     });
     
@@ -376,25 +337,462 @@ router.get("/region/:regionName/category-counts", async (req, res) => {
 });
 
 // ✅ GET providers by region AND specific category
+// ✅ GET providers by region AND specific category (UPDATED to handle main categories)
 router.get("/region-category", async (req, res) => {
   try {
     const { region, category, page = 1, limit = 20, sort = "rating" } = req.query;
     
     // Build query object
-    const query = {};
+    const query = {
+      region: { $regex: new RegExp(`^${region}$`, 'i') }
+    };
     
-    // Add region filter if provided
-    if (region) {
-      query.region = { 
-        $regex: new RegExp(`^${region}$`, 'i') 
-      };
-    }
+    // Define mapping of main categories to their sub-categories
+    // This should match your serviceCategories from the frontend
+    const mainCategoryToSubCategories = {
+      "Informal & On-Demand Services": [
+        "Kiosk Repairs",
+        "Container Shop Fabrication",
+        "Sign Writing",
+        "Billboard Installation",
+        "POP Installation",
+        "Mobile Phone Charging Services",
+        "Satellite Dish Installation (DSTV, GOTV)",
+        "Water Vendor (Private Supply)"
+      ],
+      "Plumbing & Water Services": [
+        "Plumbing Installation & Repairs",
+        "Pipe Leakage Fixing",
+        "Water Tank Installation",
+        "Borehole Drilling & Maintenance",
+        "Pump Installation & Repairs",
+        "Bathroom & Toilet Installation",
+        "Septic Tank Construction & Repairs",
+        "Drainage Work",
+        "Water Heater Installation"
+      ],
+      "Construction & Engineering": [
+        "Aluminum & Metal Fabrication",
+        "Building Construction",
+        "Carpenter",
+        "Carpentry & Woodworks",
+        "Civil Works & Infrastructure",
+        "Electrical Installation",
+        "Electrician",
+        "Heavy Equipment Hiring",
+        "Mason",
+        "Masonry & Block Works",
+        "Painter",
+        "Painting & Finishing",
+        "Plumber",
+        "Plumbing & Water Systems",
+        "POP installer",
+        "Professional & Technical Services",
+        "Roofing Services",
+        "Solar Installation",
+        "Steel bender",
+        "Tiler",
+        "Tiling & Flooring",
+        "Welder"
+      ],
+      "ICT & Digital Services": [
+        "Cloud & Hosting Services",
+        "Digital Marketing & Online Presence",
+        "E-commerce & Online Services",
+        "Emerging Technologies",
+        "Graphic & Creative Design",
+        "IT Support & Maintenance",
+        "IT Training & Consulting",
+        "Mobile & App Development",
+        "Networking & Cybersecurity",
+        "Software & Application Services",
+        "Video, Photography & Multimedia",
+        "Web Development & Design",
+        "Phone Repairs",
+        "Laptop Repairs",
+        "Computer Servicing",
+        "Network Installation",
+        "Wi-Fi Setup",
+        "Printer Repairs",
+        "Software Installation",
+        "Website Development",
+        "App Development",
+        "Graphic Design",
+        "Digital Marketing",
+        "IT Support Services"
+      ],
+      "Electrical & Electronics": [
+        "Electrical Wiring (Residential & Commercial)",
+        "Meter Installation & Troubleshooting",
+        "Fault Detection & Repairs",
+        "Generator Repairs & Servicing",
+        "Inverter & UPS Installation",
+        "Solar Panel Installation & Maintenance",
+        "CCTV Installation",
+        "Intercom Installation",
+        "Electric Gate Installation",
+        "Appliance Repairs (Iron, Kettle, Fan, etc.)"
+      ],
+      "Home & Building Services": [
+        "Masonry / Block Laying",
+        "Carpentry & Woodwork",
+        "Roofing (Aluminium, Roofing Sheets)",
+        "Tiling (Floor & Wall)",
+        "Painting & Decoration",
+        "Plastering & Screeding",
+        "Ceiling Installation (POP, PVC, Gypsum)",
+        "Steel Bending & Iron Work",
+        "Welding & Fabrication",
+        "Window & Door Installation",
+        "Fence Wall Construction",
+        "Paving & Interlocking Blocks",
+        "General Handyman Services"
+      ],
+      "Cleaning & Maintenance": [
+        "Residential Cleaning",
+        "Office Cleaning",
+        "Post-Construction Cleaning",
+        "Deep Cleaning",
+        "Carpet & Sofa Cleaning",
+        "Window Cleaning",
+        "Pest Control & Fumigation",
+        "Waste Collection (Private)"
+      ],
+      "Security & Safety": [
+        "Cybersecurity & Digital Safety",
+        "Equipment & Support Services",
+        "Event & Crowd Management",
+        "Fire Safety & Protection",
+        "Personal & Executive Protection",
+        "Private Security Services",
+        "Safety Training & Compliance",
+        "Surveillance & Monitoring",
+        "Security Door Installation",
+        "Burglar Proof Installation",
+        "Electric Fence Installation",
+        "CCTV & Alarm Systems",
+        "Fire Extinguisher Installation",
+        "Smoke Detector Installation"
+      ],
+      "Transport & Delivery": [
+        "Food Delivery",
+        "Freight & Industrial Transport",
+        "Goods Delivery & Logistics",
+        "Moving & Relocation Services",
+        "Passenger Transport",
+        "Specialized Transport Services",
+        "Vehicle Rental & Leasing",
+        "Vehicle Support Services"
+      ],
+      "Agriculture & Farming Services": [
+        "Agribusiness & Consultancy",
+        "Agro-Equipment & Machinery Services",
+        "Agro-Input Supply",
+        "Agro-Processing Services",
+        "Aquaculture & Fisheries",
+        "Crop Production Services",
+        "Landscaping & Horticulture",
+        "Livestock Farming Services",
+        "Storage & Logistics",
+        "Sustainable & Organic Farming",
+        "Veterinary & Animal Health Services"
+      ],
+      "Air Conditioning & Cooling": [
+        "Air Conditioner Installation",
+        "AC Servicing & Repairs",
+        "Refrigerator Repairs",
+        "Freezer Repairs",
+        "Cold Room Installation & Maintenance"
+      ],
+      "Auto & Transport Services": [
+        "Auto Mechanics",
+        "Auto Electricians",
+        "Car AC Repairs",
+        "Spraying & Panel Beating",
+        "Vehicle Diagnostics",
+        "Motorcycle Repairs",
+        "Mobile Mechanic Services",
+        "Towing Services"
+      ],
+      "Beauty & Wellness": [
+        "Beauty Products",
+        "Cosmetic Procedures",
+        "Fitness & Physical Wellness",
+        "Hair Services",
+        "Makeup & Grooming",
+        "Nail Services",
+        "Nutrition & Lifestyle",
+        "Skincare & Aesthetics",
+        "Spa & Relaxation"
+      ],
+      "Business & Professional Services": [
+        "Accounting & Bookkeeping",
+        "Tax Consulting",
+        "Business Registration Assistance",
+        "Legal Services",
+        "HR Services",
+        "Marketing & Sales Agents",
+        "Procurement Agents"
+      ],
+      "Domestic & Household Support": [
+        "Cooking & Kitchen Support",
+        "Domestic Help / House Help",
+        "Elderly & Home Care Support",
+        "Errand & Personal Assistance",
+        "Gardening & Outdoor Care",
+        "Home Maintenance Support",
+        "Housekeeping & Cleaning",
+        "Laundry Services",
+        "Moving & Relocation Support",
+        "Nanny & Childcare Services",
+        "Pest Control & Fumigation",
+        "Security & Household Protection"
+      ],
+      "Education & Training": [
+        "Home Tutors",
+        "ICT Training",
+        "Vocational Training",
+        "Driving Instructors",
+        "Music Lessons",
+        "Exam Coaching (BECE, WASSCE)"
+      ],
+      "Entertainment Services": [
+        "Children’s Entertainment",
+        "Comedy & Public Speaking",
+        "Content Creation & Digital Media",
+        "Cultural & Traditional Entertainment",
+        "Dance & Performance Arts",
+        "Event Entertainment",
+        "Event Production & Rentals",
+        "Fashion & Styling",
+        "Film & Media Production",
+        "Graphic Design & Visual Arts",
+        "Makeup & Creative Beauty",
+        "Music & Live Performance",
+        "Photography & Videography"
+      ],
+      "Event Services": [
+        "Catering & Food Services",
+        "Children’s Party Services",
+        "Church events",
+        "Corporate events",
+        "Decoration Services",
+        "Entertainment",
+        "Event Planning & Coordination",
+        "Event Setup & Rentals",
+        "Family Events",
+        "Fashion & Beauty",
+        "Funeral specialist",
+        "Graduation Events",
+        "Outdoor events",
+        "Photography & Videography",
+        "Printing & Branding",
+        "Religious & Traditional Event Support",
+        "Security & Crowd Control",
+        "Sound, Lighting & Technical",
+        "Transportation Services",
+        "Wedding specialist"
+      ],
+      "Event & Media Services": [
+        "Event Setup (Canopies, Chairs, Tables)",
+        "Sound System Services",
+        "MC Services",
+        "DJ Services",
+        "Photography",
+        "Videography",
+        "Decoration Services",
+        "Stage Lighting"
+      ],
+      "Fashion & Personal Services": [
+        "Tailoring & Dressmaking",
+        "Fashion Design",
+        "Shoe Making & Repairs",
+        "Bag Making & Repairs",
+        "Hairdressing",
+        "Barbering",
+        "Makeup Artistry",
+        "Nail Technology"
+      ],
+      "Financial Services": [
+        "Accounting & Bookkeeping",
+        "Auditing & Assurance",
+        "Banking & Microfinance Services",
+        "Business Advisory & Consultancy",
+        "Cooperative & Savings Support",
+        "FinTech & Digital Financial Services",
+        "Forex & Remittance Services",
+        "Insurance Services",
+        "Investment & Wealth Mgt",
+        "Loan & Credit Services",
+        "Pension & SSNIT Services",
+        "Tax Services"
+      ],
+      "Food & Catering Services": [
+        "Bakery & Confectionery",
+        "Beverage & Drink Services",
+        "Continental & Int Cuisine",
+        "Corporate & Institutional Catering",
+        "Desserts & Snacks",
+        "Equipment & Support Services",
+        "Event Catering",
+        "Food Delivery",
+        "Food Trucks & Mobile Catering",
+        "Meal Prep & Daily Food Services",
+        "Mobile / on-site service",
+        "Specialty Services",
+        "Traditional cuisine",
+        "Traditional Ghanaian Cuisine"
+      ],
+      "Furniture & Interior Services": [
+        "Furniture Making",
+        "Furniture Repairs",
+        "Upholstery",
+        "Cabinet & Kitchen Unit Installation",
+        "Wardrobe Installation",
+        "TV Mounting",
+        "Interior Decoration",
+        "Blinds & Curtain Installation"
+      ],
+      "Health & Care Services (Non-Clinical)": [
+        "Home Care Assistants",
+        "Elderly Care",
+        "Childcare / Babysitting",
+        "Physiotherapy Assistants",
+        "Fitness Trainers"
+      ],
+      "Hospitality & Accommodation Support": [
+        "Event & Conference Services",
+        "Food & Beverage Services",
+        "Guesthouses & Hostels",
+        "Hospitality Staffing Services",
+        "Hotels & Lodges",
+        "Housekeeping & Support Services",
+        "Resorts & Retreats",
+        "Short-Term Rentals",
+        "Specialty & Niche Services",
+        "Travel & Concierge Services"
+      ],
+      "Industrial & Heavy Services": [
+        "Industrial Cleaning & Waste Mgt",
+        "Industrial Electrical & Mechanical Services",
+        "Industrial IT & Automation",
+        "Industrial Safety & Compliance",
+        "Logistics & Heavy Transport",
+        "Machinery & Equipment Operator",
+        "Machinery & Equipment Services",
+        "Manufacturing & Fabrication",
+        "Mining & Quarry Services",
+        "Specialized Industrial Services",
+        "Tractor Operator",
+        "Construction & Civil Heavy Works"
+      ],
+      "Manufacturing": [
+        "Chemical & Pharmaceutical",
+        "Construction Materials",
+        "Electrical & Energy",
+        "Food & Beverage",
+        "Industrial / Large-Scale",
+        "Metal & Fabrication",
+        "Plastic & Packaging",
+        "Printing & Publishing",
+        "Small-Scale",
+        "Textiles & Garments"
+      ],
+      "Moving & Logistics": [
+        "House Moving Services",
+        "Office Relocation",
+        "Loaders & Packers",
+        "Furniture Assembly & Disassembly",
+        "Courier Services",
+        "Errand Services"
+      ],
+      "Outdoor & Landscaping": [
+        "Landscaping & Gardening",
+        "Lawn Mowing",
+        "Tree Cutting & Trimming",
+        "Compound Cleaning",
+        "Weed Clearing",
+        "Watering System Installation"
+      ],
+      "Pet & Animal Services": [
+        "Aquaculture & Fisheries",
+        "Livestock Services",
+        "Pet Adoption & Rescue",
+        "Pet Care & Grooming",
+        "Pet Sitting & Boarding",
+        "Pet Supplies & Accessories",
+        "Pet Training & Behavior",
+        "Training & Education",
+        "Veterinary & Animal Health"
+      ],
+      "Printing & Branding Services": [
+        "Branding Services",
+        "Graphic Design",
+        "Printing Equipment Services",
+        "Printing Services",
+        "Promotional & Marketing Materials",
+        "Specialty & Custom Printing",
+        "Stationery & Office Printing"
+      ],
+      "Real Estate & Property Services": [
+        "Facility & Maintenance Services",
+        "Interior Design & Renovation Services",
+        "Land & Legal Services",
+        "Property Management",
+        "Property Marketing & Promotion",
+        "Property Rental & Leasing",
+        "Property Sales & Buying Services",
+        "Real Estate Development",
+        "Real Estate Investment & Advisory"
+      ],
+      "Repair & Technical Services": [
+        "Automotive & Vehicle Services",
+        "Electronics & Electrical Repair",
+        "Furniture & Woodwork Repair",
+        "Home & Office Maintenance",
+        "HVAC & Cooling Systems",
+        "Mechanical & Industrial Repair",
+        "Miscellaneous Technical Services",
+        "Plumbing & Water Systems Repair"
+      ],
+      "Travel & Tourism": [
+        "Accommodation & Lodging Support",
+        "Adventure & Recreational Activities",
+        "Culinary & Experiential Tourism",
+        "Event & Festival Tourism",
+        "Tour Guides & Local Experiences",
+        "Tour Operators & Travel Agencies",
+        "Transportation & Transfers",
+        "Travel Documentation & Support",
+        "Travel Photography & Videography"
+      ],
+      "Water & Environmental Services": [
+        "Cleaning & Facility Hygiene",
+        "Drainage & Flood Control",
+        "Environmental & Ecological Services",
+        "Pest Control & Vector Management",
+        "Renewable & Sustainable Services",
+        "Waste Management & Sanitation",
+        "Water Supply & Management",
+        "Water Testing & Quality Control"
+      ]
+    };
     
-    // Add category filter if provided
-    if (category) {
-      query.category = { 
-        $in: [category] // Match any provider that has this category in their array
-      };
+    // Check if this is a main category
+    if (mainCategoryToSubCategories[category]) {
+      // This is a main category - match any of its sub-categories
+      const subCategories = mainCategoryToSubCategories[category];
+      
+      // Create case-insensitive regex patterns for each sub-category
+      const subCategoryPatterns = subCategories.map(subCat => 
+        new RegExp(`^${subCat}$`, 'i')
+      );
+      
+      query.category = { $in: subCategoryPatterns };
+      console.log(`🔍 Searching for any of ${subCategories.length} sub-categories under ${category}`);
+    } else {
+      // This is a specific sub-category or popular worker - do exact match (case insensitive)
+      query.category = { $in: [new RegExp(`^${category}$`, 'i')] };
     }
     
     console.log("🔍 Region-category query:", JSON.stringify(query));
@@ -428,7 +826,7 @@ router.get("/region-category", async (req, res) => {
     
     console.log(`✅ Found ${providers.length} providers matching query`);
     
-    // Process providers to add virtuals
+    // Process providers to add virtuals and matching categories
     const processedProviders = providers.map(provider => {
       const providerObj = provider.toObject();
       
@@ -442,6 +840,22 @@ router.get("/region-category", async (req, res) => {
       
       // Add review count
       providerObj.reviewCount = provider.reviews?.length || 0;
+      
+      // Find which of their categories match the search
+      if (mainCategoryToSubCategories[category]) {
+        // If searching by main category, find all sub-categories that match
+        const matchingCategories = (provider.category || []).filter(cat => 
+          mainCategoryToSubCategories[category].some(subCat => 
+            subCat.toLowerCase() === cat.toLowerCase()
+          )
+        );
+        providerObj.matchingCategories = matchingCategories;
+      } else {
+        // If searching by specific category, just show that category if it matches
+        providerObj.matchingCategories = (provider.category || []).filter(cat => 
+          cat.toLowerCase() === category.toLowerCase()
+        );
+      }
       
       return providerObj;
     });
