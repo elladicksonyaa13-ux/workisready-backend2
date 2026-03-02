@@ -148,7 +148,7 @@ app.get("/api/test-images", async (req, res) => {
             name: item.name,
             path: relativePath,
             fullPath: itemPath,
-            url: `http://localhost:${PORT}/uploads/${relativePath}`
+            url: `http://localhost:${process.env.PORT || 5000}/uploads/${relativePath}`
           });
         }
       });
