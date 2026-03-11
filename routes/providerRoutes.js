@@ -9,6 +9,8 @@ import { normalizeFilePath } from '../utils/pathUtils.js';
 import mongoose from "mongoose";
 import ProviderUpdateRequest from "../models/ProviderUpdateRequest.js"; 
 import User from "../models/User.js"; 
+import { getFeaturedProviders } from "../controllers/providerController.js";
+
 
 
 
@@ -1426,6 +1428,11 @@ router.post("/update-request", auth, upload.array("sampleWork", 10), async (req,
   }
 });
 
+
+/* -------------------------------------------------------------------------- */
+/* 🚀 PUBLIC: GET FEATURED/PROMOTED PROVIDERS FOR A SCREEN */
+/* -------------------------------------------------------------------------- */
+router.get("/featured/:screen", getFeaturedProviders);
 
 
 

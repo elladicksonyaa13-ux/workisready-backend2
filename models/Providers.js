@@ -147,6 +147,18 @@ profilePic: {
       max: 5
     },
 
+     // NEW: Advanced promotion settings
+  promoteOn: {
+    homeScreen: { type: Boolean, default: false },     // Featured on home screen
+    jobsScreen: { type: Boolean, default: false },      // Featured on jobs screen
+    workersScreen: { type: Boolean, default: false },   // Featured on workers screen
+    dashboard: { type: Boolean, default: false },       // Featured on dashboard
+    profile: { type: Boolean, default: false },         // Featured on profile page
+    categories: [{ type: String }],                      // Featured in specific categories
+    regions: [{ type: String }],                         // Featured in specific regions
+    customScreens: [{ type: String }]                    // Custom screen names
+  },
+
     // Statistics
     totalJobs: { type: Number, default: 0 },
     completedJobs: { type: Number, default: 0 },

@@ -5,6 +5,8 @@ import { fileURLToPath } from "url";
 import Task from "../models/Task.js";
 import { auth } from "../middleware/auth.js";
 
+import * as taskController from '../controllers/taskController.js';
+
 const router = express.Router();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -744,5 +746,8 @@ router.put('/:id/status', auth, async (req, res) => {
     });
   }
 });
+
+// Public route to get promoted tasks for a screen
+router.get('/featured/:screen', taskController.getFeaturedTasks);
 
 export default router;
