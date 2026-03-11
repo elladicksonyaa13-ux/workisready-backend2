@@ -3,6 +3,8 @@ import express from "express";
 import { adminAuth } from "../../middleware/auth.js"; // Use adminAuth middleware
 import Task from "../../models/Task.js";
 
+import * as taskController from '../../controllers/taskController.js';
+
 const router = express.Router();
 
 // ✅ GET all tasks (admin view)
@@ -80,5 +82,10 @@ router.post("/bulk-delete", adminAuth, async (req, res) => {
     });
   }
 });
+
+// In your backend, create routes for tasks promotion:
+router.patch('/:id/promote', adminAuth, taskController.updatePromotion);
+router.patch('/bulk-promote', adminAuth, taskController.bulkPromote);
+
 
 export default router;

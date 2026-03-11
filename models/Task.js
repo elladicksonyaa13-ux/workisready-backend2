@@ -97,6 +97,17 @@ const taskSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+
+  promoteOn: {
+    homeScreen: { type: Boolean, default: false },
+    jobsScreen: { type: Boolean, default: false },
+    workersScreen: { type: Boolean, default: false },
+    dashboard: { type: Boolean, default: false },
+    profile: { type: Boolean, default: false },
+    categories: [{ type: String }],
+    regions: [{ type: String }],
+    customScreens: [{ type: String }]
   }
 }, {
   timestamps: true
@@ -111,6 +122,9 @@ taskSchema.index({ region: 1, mainCategory: 1, status: 1});
 taskSchema.index({ category: 1, status: 1 });
 taskSchema.index({ location: 'text', title: 'text', description: 'text' });
 taskSchema.index({ region: 1, status: 1 });
+taskSchema.index({ 'promoteOn.homeScreen': 1 }); // Add index for promotion queries
+taskSchema.index({ 'promoteOn.jobsScreen': 1 });
+taskSchema.index({ 'promoteOn.workersScreen': 1 });
 
 taskSchema.pre('save', function(next) {
   // If mainCategory is not set but category array has values, use the first one

@@ -1,4 +1,3 @@
-// routes/admin/providerRoutes.js
 import express from "express";
 import multer from "multer";
 import Provider from "../../models/Providers.js";
@@ -8,6 +7,10 @@ import path from "path";
 import mongoose from "mongoose";
 import fs from "fs";
 import ProviderUpdateRequest from "../../models/ProviderUpdateRequest.js";
+
+// Import controller functions
+import * as providerController from '../../controllers/providerController.js';
+
 
 const router = express.Router();
 
@@ -870,6 +873,14 @@ router.patch("/bulk-feature", adminAuth, async (req, res) => {
     });
   }
 });
+
+
+/* -------------------------------------------------------------------------- */
+/* 🚀 NEW: PROMOTE ROUTES */
+/* -------------------------------------------------------------------------- */
+router.patch('/:id/promote', adminAuth, providerController.updatePromotion);
+router.patch('/bulk-promote', adminAuth, providerController.bulkPromote);
+// router.get('/featured/:screen', providerController.getFeaturedProviders); // This one is public, no auth needed
 
 
 

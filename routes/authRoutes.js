@@ -28,7 +28,7 @@ router.get('/google/callback', async (req, res) => {
     // Simulate POST body
     req.body = {
       code,
-      redirectUri: 'https://workisready-backend1-production.up.railway.app/api/auth/google/callback',
+      redirectUri: 'https://workisready-backend2-production.up.railway.app/api/auth/google/callback',
     };
 
     // Call existing controller
