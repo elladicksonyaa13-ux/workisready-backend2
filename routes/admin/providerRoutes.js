@@ -274,7 +274,7 @@ router.put("/:id", adminAuth,
       
       // Update basic fields
       const textFields = [
-        'firstName', 'surname', 'otherName', 'city', 'region', 'district',
+        'firstName', 'surname', 'businessName', 'city', 'region', 'district',
         'bio', 'experience', 'hourlyRate', 'availability', 
         'phone', 'whatsapp', 'email'
       ];
@@ -309,9 +309,9 @@ router.put("/:id", adminAuth,
         }
       }
       
-      // Update fullName
-      provider.fullName = `${provider.firstName} ${provider.surname}${provider.otherName ? ` ${provider.otherName}` : ""}`.trim();
-      console.log("Updated fullName:", provider.fullName);
+      // Update fullName - prioritize business name if available
+provider.fullName = provider.businessName || `${provider.firstName} ${provider.surname}`.trim();
+console.log("Updated fullName:", provider.fullName);
       
       // ✅ CRITICAL FIX: File updates - Store relative paths, not full URLs
       

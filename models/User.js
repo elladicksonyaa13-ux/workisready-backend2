@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
-    oname: {
+    businessName: {
       type: String,
       default: "",
     },
@@ -68,6 +68,10 @@ whatsapp: {
   trim: true,
 },
     location: {
+      type: String,
+      default: "",
+    },
+    city: {
       type: String,
       default: "",
     },
@@ -131,6 +135,24 @@ whatsapp: {
       type: Date,
       default: null,
     },
+
+    // Add these fields to your userSchema
+deletionRequested: {
+  type: Boolean,
+  default: false
+},
+deletionReason: {
+  type: String,
+  default: ""
+},
+deletionRequestedAt: {
+  type: Date,
+  default: null
+},
+scheduledDeletionDate: {
+  type: Date,
+  default: null
+},
 
     // Password Reset
     resetToken: String,

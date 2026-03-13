@@ -210,6 +210,27 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // ✅ CHECK FOR DELETED/SUSPENDED ACCOUNTS
+    if (user.accountSuspended) {
+      console.log("🚫 Account suspended for:", email);
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended. Please contact support.",
+      });
+    }
+
+    if (user.deletionRequested) {
+      console.log("🗑️ Account deletion requested for:", email);
+      const deletionDate = user.scheduledDeletionDate 
+        ? new Date(user.scheduledDeletionDate).toLocaleDateString() 
+        : 'soon';
+      
+      return res.status(403).json({
+        success: false,
+        message: `Your account has been scheduled for deletion and will be permanently removed on ${deletionDate}. Please contact support if you believe this is an error.`,
+      });
+    }
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(400).json({

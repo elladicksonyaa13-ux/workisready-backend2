@@ -819,7 +819,7 @@ router.get("/region-category", async (req, res) => {
     
     const [providers, total] = await Promise.all([
       Provider.find(query)
-        .select('fullName firstName surname otherName profilePic bio category skills experience hourlyRate availability averageRating reviews city region totalJobs completedJobs responseRate isVerified')
+        .select('fullName firstName surname businessName profilePic bio category skills experience hourlyRate availability averageRating reviews city region totalJobs completedJobs responseRate isVerified')
         .sort(sortOption)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -948,7 +948,7 @@ router.post(
       const {
         fname,
         sname,
-        otherName,
+        businessName,
         city,
         region,
         district,
@@ -971,8 +971,8 @@ router.post(
         });
       }
 
-      // ✅ Create full name
-      const fullName = `${fname} ${sname}${otherName ? ` ${otherName}` : ""}`.trim();
+      // ✅ Create full name - prioritize business name if available
+const fullName = businessName || `${fname} ${sname}`.trim();
 
       // ✅ Normalize file paths
       let profilePicPath = "";
@@ -990,7 +990,7 @@ router.post(
         userId: req.user._id,
         firstName: fname,
         surname: sname,
-        otherName: otherName || "",
+        businessName: businessName || "",
         fullName,
         city,
         region,
@@ -1159,10 +1159,10 @@ router.put(
       if (updates.category) updates.category = JSON.parse(updates.category);
       
       // Update name fields
-      if (updates.fname || updates.sname || updates.otherName) {
+      if (updates.fname || updates.sname || updates.businessName) {
         provider.firstName = updates.fname || provider.firstName;
         provider.surname = updates.sname || provider.surname;
-        provider.otherName = updates.otherName || provider.otherName;
+        provider.businessName = updates.businessName || provider.businessName;
         // fullName will be updated by pre-save hook
       }
       
