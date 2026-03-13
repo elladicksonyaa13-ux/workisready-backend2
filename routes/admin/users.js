@@ -14,7 +14,13 @@ router.get("/", adminAuth, async (req, res) => {
     console.log("Admin accessing users:", req.admin.email);
     
     const users = await User.find().select("-password");
-    res.json({ success: true, users });
+     // Add hasPendingChanges flag to each user
+    const usersWithPendingFlag = users.map(user => {
+      const userObj = user.toObject();
+      userObj.hasPendingChanges = user.hasPendingChanges || false;
+      return userObj;
+    });
+    res.json({ success: true, users: usersWithPendingFlag });
   } catch (error) {
     console.error("❌ Error fetching users:", error);
     res.status(500).json({ success: false, message: "Server error" });
@@ -160,24 +166,26 @@ router.patch("/:id/approve-changes", adminAuth, async (req, res) => {
     // Update user fields from pending data
     if (pendingData.fname !== undefined) user.fname = pendingData.fname;
     if (pendingData.sname !== undefined) user.sname = pendingData.sname;
-    if (pendingData.oname !== undefined) user.oname = pendingData.oname;
+    if (pendingData.businessName !== undefined) user.businessName = pendingData.businessName;
     if (pendingData.email !== undefined) user.email = pendingData.email;
     if (pendingData.phone !== undefined) user.phone = pendingData.phone;
     if (pendingData.whatsapp !== undefined) user.whatsapp = pendingData.whatsapp;
-    if (pendingData.location !== undefined) user.location = pendingData.location;
+    if (pendingData.district !== undefined) user.district = pendingData.district;
     if (pendingData.region !== undefined) user.region = pendingData.region;
+    if (pendingData.city !== undefined) user.city = pendingData.city;
     if (pendingData.profileImage !== undefined) user.profileImage = pendingData.profileImage;
 
     // Update original profile data to current state
     user.originalProfileData = {
       fname: user.fname,
       sname: user.sname,
-      oname: user.oname,
+      businessName: user.businessName,
       email: user.email,
       phone: user.phone,
       whatsapp: user.whatsapp,
-      location: user.location,
+      district: user.district,
       region: user.region,
+      city: user.city,
       profileImage: user.profileImage,
       updatedAt: new Date()
     };
@@ -344,6 +352,7 @@ router.put("/:id", adminAuth, async (req, res) => {
     if (phone !== undefined) user.phone = phone;
     if (whatsapp !== undefined) user.whatsapp = whatsapp;
     if (userType !== undefined) user.userType = userType;
+    if (businessName !== undefined) user.businessName = businessName;
 
     await user.save();
 
@@ -411,6 +420,28 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error bulk deleting users:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ==============================
+// ✅ GET USERS WITH PENDING CHANGES
+// ==============================
+router.get("/pending-changes", adminAuth, async (req, res) => {
+  try {
+    console.log("Fetching users with pending changes by admin:", req.admin.email);
+    
+    const users = await User.find({ 
+      hasPendingChanges: true,
+      pendingProfileData: { $ne: null }
+    }).select("-password");
+    
+    res.json({ 
+      success: true, 
+      users 
+    });
+  } catch (error) {
+    console.error("❌ Error fetching pending users:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });

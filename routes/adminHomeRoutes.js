@@ -33,16 +33,16 @@ router.get("/featured-services", async (req, res) => {
       .limit(8);
 
     // Format response
-    const formattedServices = services.map(item => ({
-      _id: item._id,
-      name: item.serviceId?.name || 'Service',
-      icon: item.serviceId?.icon || '🔧',
-      providerName: item.providerId?.fullName || item.providerId?.businessName || 'Provider',
-      providerLocation: item.providerId?.location,
-      rating: item.providerId?.rating,
-      isPaid: item.isPaid,
-      expiresAt: item.expiresAt
-    }));
+const formattedServices = services.map(item => ({
+  _id: item._id,
+  name: item.serviceId?.name || 'Service',
+  icon: item.serviceId?.icon || '🔧',
+  providerName: item.providerId?.businessName || item.providerId?.fullName || 'Provider',
+  providerLocation: item.providerId?.location,
+  rating: item.providerId?.rating,
+  isPaid: item.isPaid,
+  expiresAt: item.expiresAt
+}));
 
     res.json({ success: true, services: formattedServices });
   } catch (error) {
@@ -379,7 +379,7 @@ router.get("/featured-providers", async (req, res) => {
       })
       .populate({
         path: 'providerId',
-        select: 'firstName surname otherName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt isApproved',
+        select: 'firstName surname businessName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt isApproved',
         // match: { isApproved: true }
       })
       .sort({ order: 1, createdAt: -1 })
@@ -414,7 +414,7 @@ router.get("/featured-providers", async (req, res) => {
         isFeatured: true,
         // isApproved: true
       })
-      .select('firstName surname otherName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt')
+      .select('firstName surname businessName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt')
       .sort({ createdAt: -1 })
       .limit(8 - featuredProviders.length);
       

@@ -48,7 +48,7 @@ router.delete("/users/:id", adminAuth, async (req, res) => {
 // UPDATE user info (ADMIN)
 router.put("/users/:id", adminAuth, async (req, res) => {
   try {
-    const { name, email, phone, location, userType, profileImage } = req.body;
+    const { name, email, phone, city, userType, profileImage } = req.body;
 
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
@@ -57,7 +57,7 @@ router.put("/users/:id", adminAuth, async (req, res) => {
     user.name = name ?? user.name;
     user.email = email ?? user.email;
     user.phone = phone ?? user.phone;
-    user.location = location ?? user.location;
+    user.city = city ?? user.city;
     user.userType = userType ?? user.userType;
     user.profileImage = profileImage ?? user.profileImage;
 

@@ -118,12 +118,12 @@ router.put("/profile", auth, upload.single("profileImage"), async (req, res) => 
     
     // Update user fields directly - IMMEDIATE SAVE
     const fieldsToUpdate = [
-      'fname', 'sname', 'oname', 'phone', 'whatsapp', 
-      'location', 'region', 'profileImage', 'district'
+      'fname', 'sname', 'businessName', 'phone', 'whatsapp', 
+      'city', 'region', 'profileImage', 'district'
     ];
     
     // Check if this is the initial profile completion
-    const requiredFields = ['fname', 'sname', 'phone', 'whatsapp', 'location', 'region', 'district'];
+    const requiredFields = ['fname', 'sname', 'phone', 'whatsapp', 'city', 'region', 'district'];
     const isInitialProfileSetup = requiredFields.every(field => 
       !user[field] || user[field].trim() === ''
     );
@@ -215,6 +215,199 @@ router.get("/stats", auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server error fetching stats: " + error.message,
+    });
+  }
+});
+
+// ========================
+// ✅ SUBMIT PROFILE CHANGES FOR APPROVAL
+// ========================
+router.post("/profile/pending", auth, upload.single("profileImage"), async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Check if already has pending changes
+    if (user.hasPendingChanges) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "You already have pending changes waiting for approval" 
+      });
+    }
+
+    const updates = { ...req.body };
+    
+    // Handle profile image
+    if (req.file) {
+      updates.profileImage = req.file.filename;
+    }
+
+    // ✅ CHECK PHONE UNIQUENESS
+    if (updates.phone && updates.phone !== user.phone) {
+      const existingPhone = await User.findOne({ 
+        phone: updates.phone, 
+        _id: { $ne: req.user.id }
+      });
+      
+      if (existingPhone) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Phone number already in use by another account" 
+        });
+      }
+    }
+
+    // ✅ CHECK WHATSAPP UNIQUENESS
+    if (updates.whatsapp && updates.whatsapp !== user.whatsapp) {
+      const existingWhatsApp = await User.findOne({ 
+        whatsapp: updates.whatsapp, 
+        _id: { $ne: req.user.id }
+      });
+      
+      if (existingWhatsApp) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "WhatsApp number already in use by another account" 
+        });
+      }
+    }
+
+    // Save original data if not already saved
+    if (!user.originalProfileData) {
+      user.originalProfileData = {
+        fname: user.fname,
+        sname: user.sname,
+        businessName: user.businessName,
+        email: user.email,
+        phone: user.phone,
+        whatsapp: user.whatsapp,
+        city: user.city,
+        region: user.region,
+        district: user.district,
+        profileImage: user.profileImage
+      };
+    }
+
+    // Prepare pending data
+    const pendingData = {};
+    const fieldsToUpdate = [
+      'fname', 'sname', 'businessName', 'phone', 'whatsapp', 
+      'city', 'region', 'district', 'profileImage'
+    ];
+    
+    fieldsToUpdate.forEach(field => {
+      if (updates[field] !== undefined) {
+        pendingData[field] = updates[field];
+      }
+    });
+
+    // Store pending changes
+    user.pendingProfileData = pendingData;
+    user.hasPendingChanges = true;
+    user.pendingChangesSubmittedAt = new Date();
+    
+    await user.save();
+
+    // Return response
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.json({
+      success: true,
+      message: "Profile changes submitted for admin approval",
+      submittedAt: user.pendingChangesSubmittedAt,
+      user: userResponse
+    });
+
+  } catch (error) {
+    console.error("❌ Error submitting pending changes:", error);
+    
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ 
+        success: false, 
+        message: `${field} already in use by another account` 
+      });
+    }
+    
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+
+// ========================
+// ✅ GET PENDING CHANGES STATUS
+// ========================
+router.get("/profile/pending-status", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('hasPendingChanges pendingChangesSubmittedAt pendingProfileData');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      hasPendingChanges: user.hasPendingChanges,
+      submittedAt: user.pendingChangesSubmittedAt,
+      pendingData: user.pendingProfileData
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching pending status:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ========================
+// ✅ REQUEST ACCOUNT DELETION
+// ========================
+router.post("/request-deletion", auth, async (req, res) => {
+  try {
+    const { userId, email, reason } = req.body;
+    
+    // Find the authenticated user
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "User not found" 
+      });
+    }
+    
+    // Security check - ensure the user is only deleting their own account
+    if (user._id.toString() !== userId && user.email !== email) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Unauthorized: You can only request deletion for your own account" 
+      });
+    }
+    
+    // Mark account for deletion
+    user.accountSuspended = true;
+    user.deletionRequested = true;
+    user.deletionReason = reason || "No reason provided";
+    user.deletionRequestedAt = new Date();
+    user.scheduledDeletionDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    
+    await user.save();
+    
+    // You could also send an email to the user and admin here
+    
+    res.json({
+      success: true,
+      message: "Deletion request submitted successfully. Your account will be permanently deleted after 30 days.",
+      scheduledDeletion: user.scheduledDeletionDate
+    });
+    
+  } catch (error) {
+    console.error("❌ Error requesting deletion:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error processing deletion request" 
     });
   }
 });

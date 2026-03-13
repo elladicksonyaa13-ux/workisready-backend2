@@ -13,7 +13,7 @@ const providerSchema = new mongoose.Schema(
     // Names (from frontend form)
     firstName: { type: String, required: true, trim: true },
     surname: { type: String, required: true, trim: true },
-    otherName: { type: String, default: "", trim: true },
+    businessName: { type: String, default: "", trim: true },
     fullName: { type: String, required: true, trim: true }, // Auto-generated
 
     // Location (split like the form)
@@ -199,36 +199,46 @@ providerSchema.methods.calculateRating = function () {
   this.averageRating = parseFloat((total / this.reviews.length).toFixed(1));
 };
 
-// ⭐ Generate fullName BEFORE validation (FIXED)
+// ⭐ Generate fullName BEFORE validation - UPDATED to prioritize businessName
 providerSchema.pre("validate", function (next) {
-  if (this.firstName && this.surname) {
-    this.fullName = `${this.firstName} ${this.surname}${this.otherName ? ` ${this.otherName}` : ""}`.trim();
+  if (this.businessName) {
+    // If business name exists, use it as fullName
+    this.fullName = this.businessName;
+  } else if (this.firstName && this.surname) {
+    // Otherwise use personal name
+    this.fullName = `${this.firstName} ${this.surname}`.trim();
   }
   next();
 });
 
-// ⭐ Keep this as backup for any updates
+// ⭐ Keep this as backup for any updates - UPDATED
 providerSchema.pre("save", function (next) {
-  // Ensure fullName is always set if it somehow got missed
-  if ((!this.fullName || this.fullName === "") && this.firstName && this.surname) {
-    this.fullName = `${this.firstName} ${this.surname}${this.otherName ? ` ${this.otherName}` : ""}`.trim();
+  // Ensure fullName is always set
+  if (!this.fullName || this.fullName === "") {
+    if (this.businessName) {
+      this.fullName = this.businessName;
+    } else if (this.firstName && this.surname) {
+      this.fullName = `${this.firstName} ${this.surname}`.trim();
+    }
   }
   next();
 });
 
-// ⭐ Also update the findOneAndUpdate hook to use same logic
+// ⭐ Also update the findOneAndUpdate hook to use same logic - UPDATED
 providerSchema.pre("findOneAndUpdate", function (next) {
   const update = this.getUpdate();
   
-  if (update.firstName || update.surname || update.otherName) {
-    const firstName = update.firstName || this._update.firstName;
-    const surname = update.surname || this._update.surname;
-    const otherName = update.otherName || this._update.otherName || "";
+  if (update.businessName || update.firstName || update.surname) {
+    const businessName = update.businessName || this._update?.businessName;
+    const firstName = update.firstName || this._update?.firstName;
+    const surname = update.surname || this._update?.surname;
     
-    if (firstName && surname) {
-      this.set({
-        fullName: `${firstName} ${surname}${otherName ? ` ${otherName}` : ""}`.trim()
-      });
+    if (businessName) {
+      // If business name is being set, use it
+      this.set({ fullName: businessName });
+    } else if (firstName && surname) {
+      // Otherwise use personal name
+      this.set({ fullName: `${firstName} ${surname}`.trim() });
     }
   }
   

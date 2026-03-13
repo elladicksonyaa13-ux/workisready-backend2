@@ -93,6 +93,7 @@ export const googleAuth = async (req, res) => {
         userType: user.userType,
         region: user.region,
         location: user.location,
+        city: user.city,
         isApproved: user.isApproved,
         isVerified: user.isVerified,
       },
@@ -211,6 +212,7 @@ export const googleAuthCallback = async (req, res) => {
       userType: user.userType || 'client',
       region: user.region || '',
       location: user.location || '',
+      city: user.city || '',
       isApproved: user.isApproved || false,
       isVerified: user.isVerified,
     };

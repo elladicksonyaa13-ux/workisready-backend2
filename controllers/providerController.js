@@ -39,6 +39,7 @@ export const updateProvider = async (req, res) => {
     const {
       firstName,
       surname,
+      businessName,
       city,
       region,
       district,
@@ -66,6 +67,7 @@ export const updateProvider = async (req, res) => {
     // ✅ Update text fields
     provider.firstName = firstName ?? provider.firstName;
     provider.surname = surname ?? provider.surname;
+    provider.businessName = businessName ?? provider.businessName;
     provider.city = city ?? provider.city;
     provider.region = region ?? provider.region;
     provider.district = district ?? provider.district;
