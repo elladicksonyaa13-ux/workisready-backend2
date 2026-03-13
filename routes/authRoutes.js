@@ -15,27 +15,82 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = express.Router();
 
+// Add this at the VERY TOP of your routes, right after router initialization
+router.use((req, res, next) => {
+  console.log(`📨 INCOMING REQUEST: ${req.method} ${req.url}`);
+  next();
+});
+
+// TEMPORARY TEST ROUTE - Add this before your other routes
+router.get('/test-callback', (req, res) => {
+  console.log("✅ TEST ROUTE HIT");
+  res.send("Test route working");
+});
+
 router.post("/google", googleAuth);
 router.post('/google/callback', googleAuthCallback); // For OAuth code exchange
 
 // ✅ Add GET route for OAuth redirect
+// ✅ Add GET route for OAuth redirect
+// ✅ Add GET route for OAuth redirect
 router.get('/google/callback', async (req, res) => {
+  console.log("🔥🔥🔥 GET /google/callback HIT 🔥🔥🔥");
+  console.log("req.query:", req.query);
+  
   try {
-    // Extract the query parameters Google sends
     const { code, state } = req.query;
+    
+    console.log("code present:", !!code);
+    console.log("state:", state);
 
-    // Forward to your existing controller logic
-    // Simulate POST body
+    let source = 'mobile';
+    let codeVerifier = null;
+    
+    if (state) {
+      try {
+        const stateData = JSON.parse(decodeURIComponent(state));
+        source = stateData.source || 'mobile';
+        codeVerifier = stateData.codeVerifier || null;
+        console.log("Parsed state data:", { source, hasCodeVerifier: !!codeVerifier });
+      } catch (e) {
+        console.log("State is not JSON:", state);
+        if (state === 'web' || state === 'mobile') {
+          source = state;
+        }
+      }
+    }
+
+    console.log("Final source:", source);
+
     req.body = {
       code,
-      redirectUri: 'https://workisready-backend2-production.up.railway.app/api/auth/google/callback',
+      redirectUri: `${process.env.API_URL}/api/auth/google/callback`,
+      source,
+      codeVerifier,
     };
 
-    // Call existing controller
+    console.log("Calling googleAuthCallback...");
     await googleAuthCallback(req, res);
+    console.log("✅ googleAuthCallback completed");
+    
   } catch (err) {
-    console.error('GET /google/callback error:', err);
-    res.status(500).json({ success: false, message: 'OAuth GET callback failed' });
+    console.error('❌ GET /google/callback error:', err);
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Error</title></head>
+        <body>
+          <script>
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'error',
+              message: 'OAuth callback failed'
+            }));
+            setTimeout(() => window.close(), 100);
+          </script>
+          <p>Authentication failed. You can close this window.</p>
+        </body>
+      </html>
+    `);
   }
 });
 

@@ -109,39 +109,56 @@ export const googleAuth = async (req, res) => {
 };
 
 // ✅ NEW FUNCTION: Handle OAuth code exchange (for mobile/web OAuth flow)
+// controllers/googleAuthController.js
+
+
+
 export const googleAuthCallback = async (req, res) => {
+  // 🔴🔴🔴 CRITICAL DEBUG - REMOVE AFTER TESTING 🔴🔴🔴
+  console.log("🔥🔥🔥 GOOGLE CALLBACK HIT 🔥🔥🔥");
+  console.log("req.method:", req.method);
+  console.log("req.body:", JSON.stringify(req.body, null, 2));
+  console.log("req.query:", JSON.stringify(req.query, null, 2));
+  console.log("source value:", req.body?.source);
+  // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+
+
+
   try {
-    const { code, redirectUri, codeVerifier } = req.body;
+    const { code, redirectUri, codeVerifier, source } = req.body;
 
     if (!code) {
-      return res.status(400).json({ message: "Authorization code is required" });
+      // Return HTML that closes the browser
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+          <head><title>Authentication Error</title></head>
+          <body>
+            <script>
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'error',
+                message: 'Authorization code is required'
+              }));
+              setTimeout(() => window.close(), 100);
+            </script>
+            <p>Error. You can close this window.</p>
+          </body>
+        </html>
+      `);
     }
 
-    console.log("🔑 Processing Google OAuth callback:", {
-      codeLength: code.length,
-      redirectUri,
-      hasCodeVerifier: !!codeVerifier,
-    });
+    console.log("🔑 Processing Google OAuth callback");
 
-    // Prepare token exchange options - REMOVED ": any" TypeScript annotation
-    const tokenOptions = {
+    // Exchange code for tokens
+    const { tokens } = await client.getToken({
       code,
       redirect_uri: redirectUri,
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-    };
+      code_verifier: codeVerifier,
+    });
 
-    // Add code verifier if provided (for PKCE)
-    if (codeVerifier) {
-      tokenOptions.code_verifier = codeVerifier;
-    }
-
-    // Exchange authorization code for tokens
-    const { tokens } = await client.getToken(tokenOptions);
-
-    console.log("✅ Tokens received from Google");
-
-    // Verify the ID token
+    // Verify ID token
     const ticket = await client.verifyIdToken({
       idToken: tokens.id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -150,21 +167,11 @@ export const googleAuthCallback = async (req, res) => {
     const payload = ticket.getPayload();
     const { email, name, picture, sub: googleId } = payload;
 
-    if (!email) {
-      return res.status(400).json({ message: "Google account has no email" });
-    }
+    // Find or create user
+    let user = await User.findOne({ $or: [{ email }, { googleId }] });
 
-    // Check if user exists
-    let user = await User.findOne({
-      $or: [{ email }, { googleId }]
-    });
-
-    // Auto-register if not found
     if (!user) {
-
-      const randomPassword = Math.random().toString(36).slice(-8) + 
-                            Math.random().toString(36).slice(-8);
-
+      const randomPassword = Math.random().toString(36).slice(-8);
       user = await User.create({
         name,
         email,
@@ -173,81 +180,84 @@ export const googleAuthCallback = async (req, res) => {
         isVerified: true,
         password: randomPassword,
       });
-      console.log("👤 New user created via Google OAuth:", email);
     } else {
-       // Update existing user
-      if (!user.googleId) {
-        user.googleId = googleId;
-      }
-      if (!user.profileImage && picture) {
-        user.profileImage = picture;
-      }
-      
-      // ✅ IMPORTANT: Ensure Google users are verified
-      if (!user.isVerified) {
-        user.isVerified = true;
-        console.log("✅ Auto-verified existing user during Google OAuth:", email);
-      }
-      
+      if (!user.googleId) user.googleId = googleId;
+      if (!user.profileImage && picture) user.profileImage = picture;
+      if (!user.isVerified) user.isVerified = true;
       user.authProvider = "google";
       await user.save();
-      console.log("👤 Existing user logged in via Google OAuth:", email);
     }
 
-
-    // Generate JWT token
+    // Generate JWT
     const jwtToken = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // Prepare user response
-    const userResponse = {
+    // Prepare user data
+    const userData = {
       id: user._id,
       name: user.name,
       email: user.email,
       profileImage: user.profileImage || picture,
       authProvider: user.authProvider,
       userType: user.userType || 'client',
-      region: user.region || '',
-      location: user.location || '',
-      city: user.city || '',
       isApproved: user.isApproved || false,
       isVerified: user.isVerified,
     };
 
     console.log("✅ Google OAuth successful for:", email);
+    console.log("📱 Source received:", source);
 
-    res.status(200).json({
-      success: true,
-      token: jwtToken,
-      user: userResponse,
-    });
-
-  } catch (error) {
+    // ✅ CHECK SOURCE BEFORE RETURNING
+    if (source === 'mobile') {
+      console.log("📱 Returning HTML for mobile app");
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Authentication Successful</title>
+          </head>
+          <body>
+            <script>
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'success',
+                token: '${jwtToken}',
+                user: ${JSON.stringify(userData)}
+              }));
+              setTimeout(() => window.close(), 500);
+            </script>
+            <p>Authentication successful! You can close this window.</p>
+          </body>
+        </html>
+      `);
+    } else {
+      console.log("🌐 Returning redirect for web");
+      return res.redirect(`${process.env.CLIENT_URL}?token=${jwtToken}`);
+    }
+    
+  } catch (error) {  // ← This was missing!
     console.error("❌ Google Auth Callback Error:", error);
     
-    // Provide more specific error messages
-    let errorMessage = "Google authentication failed";
-    let statusCode = 500;
-
-    if (error.message.includes("invalid_grant")) {
-      errorMessage = "Authorization code is invalid or expired. Please try again.";
-      statusCode = 400;
-    } else if (error.message.includes("redirect_uri_mismatch")) {
-      errorMessage = "Redirect URI mismatch. Please check your OAuth configuration.";
-      statusCode = 400;
-    } else if (error.message.includes("code_verifier")) {
-      errorMessage = "Invalid code verifier for PKCE flow.";
-      statusCode = 400;
-    }
-
-    res.status(statusCode).json({
-      success: false,
-      message: errorMessage,
-      error: error.message,
-    });
+    // Return error HTML
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Authentication Error</title></head>
+        <body>
+          <script>
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'error',
+              message: '${error.message || 'Authentication failed'}'
+            }));
+            setTimeout(() => window.close(), 100);
+          </script>
+          <p>Authentication failed. You can close this window.</p>
+        </body>
+      </html>
+    `);
   }
 };
 
