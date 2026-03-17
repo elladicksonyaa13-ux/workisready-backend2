@@ -34,7 +34,7 @@ router.post("/", adminAuth, async (req, res) => {
   try {
     console.log("Creating user by admin:", req.admin.email);
 
-    const { name, email, password, phone, whatsapp, userType } = req.body;
+    const { fname, sname, email, password, phone, whatsapp, userType } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -44,7 +44,8 @@ router.post("/", adminAuth, async (req, res) => {
 
     // Create new user (automatically approved AND email verified if created by admin)
     const newUser = new User({
-      name,
+      fname,
+      sname,
       email,
       password,
       phone,
