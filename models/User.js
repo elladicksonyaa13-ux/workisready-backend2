@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema(
     // Basic Information
     name: {
       type: String,
-      required: true,
+      default: "",
       trim: true,
     },
     fname: {
