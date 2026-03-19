@@ -41,7 +41,8 @@ router.get("/jobs-by-region", async (req, res) => {
     
     // Get ALL open jobs
     const jobs = await Task.find({ 
-      status: "open"
+      status: "open",
+      isSuspended: { $ne: true } // 👈 ADD THIS LINE
     }).select("region category mainCategory");
     
     console.log(`✅ Found ${jobs.length} open jobs total`);

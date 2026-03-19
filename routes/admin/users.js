@@ -1,6 +1,8 @@
 import express from "express";
 import User from "../../models/User.js";
 import { adminAuth } from "../../middleware/auth.js"; // Import named export
+import jwt from "jsonwebtoken";
+
 
 const router = express.Router();
 
@@ -34,7 +36,7 @@ router.post("/", adminAuth, async (req, res) => {
   try {
     console.log("Creating user by admin:", req.admin.email);
 
-    const { name, email, password, phone, whatsapp, userType } = req.body;
+    const { fname, sname, email, password, phone, whatsapp, userType } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -44,7 +46,8 @@ router.post("/", adminAuth, async (req, res) => {
 
     // Create new user (automatically approved AND email verified if created by admin)
     const newUser = new User({
-      name,
+      fname,
+      sname,
       email,
       password,
       phone,
@@ -332,27 +335,47 @@ router.patch("/bulk-disapprove", adminAuth, async (req, res) => {
 });
 
 // ==============================
-// ✅ UPDATE USER (ADMIN)
+// ✅ UPDATE USER (ADMIN) - IMPROVED
 // ==============================
 router.put("/:id", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Updating user by admin:", req.admin.email);
+    console.log("Request body:", req.body);
 
-    const { name, email, phone, whatsapp, userType } = req.body;
+    const { fname, sname, email, phone, whatsapp, userType } = req.body;
 
     const user = await User.findById(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // Track if name needs updating
+    let nameUpdated = false;
+
     // Update user fields
-    if (name !== undefined) user.name = name;
+    if (fname !== undefined) {
+      user.fname = fname;
+      nameUpdated = true;
+    }
+    
+    if (sname !== undefined) {
+      user.sname = sname;
+      nameUpdated = true;
+    }
+    
+    // Update name field if either fname or sname changed
+    if (nameUpdated) {
+      user.name = `${user.fname || ''} ${user.sname || ''}`.trim();
+      // If both are empty, set to email username as fallback
+      if (!user.name && user.email) {
+        user.name = user.email.split('@')[0];
+      }
+    }
+    
     if (email !== undefined) user.email = email;
     if (phone !== undefined) user.phone = phone;
     if (whatsapp !== undefined) user.whatsapp = whatsapp;
     if (userType !== undefined) user.userType = userType;
-    if (businessName !== undefined) user.businessName = businessName;
 
     await user.save();
 
@@ -367,10 +390,19 @@ router.put("/:id", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error updating user:", error);
+    
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ 
+        success: false, 
+        message: `${field} already exists` 
+      });
+    }
+    
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 // ==============================
 // ✅ DELETE USER (ADMIN)
 // ==============================
@@ -445,5 +477,171 @@ router.get("/pending-changes", adminAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
+
+
+// ==============================
+// ✅ LOGIN AS USER (ADMIN)
+// ==============================
+router.post("/:id/login-as-user", adminAuth, async (req, res) => {
+  try {
+    console.log("Admin logging in as user:", req.admin.email);
+    
+    const user = await User.findById(req.params.id).select("-password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // 🔴 ADD THIS DEBUG LOG - See what's actually in the user object
+    console.log("🔥 RAW USER DATA FROM DATABASE:", {
+      _id: user._id,
+      fname: user.fname,
+      sname: user.sname,
+      phone: user.phone,
+      whatsapp: user.whatsapp,
+      city: user.city,
+      region: user.region,
+      district: user.district,
+      businessName: user.businessName,
+      profileImage: user.profileImage
+    });
+
+    // Generate token
+    const token = jwt.sign(
+       { 
+    id: user._id,
+    tokenVersion: user.tokenVersion || 0  // ← ADD THIS
+  },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // Return user data
+    res.json({
+      success: true,
+      message: "Login successful",
+      user: {
+        id: user._id,
+        name: user.name || `${user.fname || ''} ${user.sname || ''}`.trim(),
+        email: user.email,
+        userType: user.userType,
+        isVerified: user.isVerified,
+        isApproved: user.isApproved,
+        emailVerified: user.isVerified,
+        adminVerified: user.isApproved,
+        
+        // 🔴 THESE SHOULD HAVE VALUES
+        fname: user.fname,
+        sname: user.sname,
+        phone: user.phone,
+        whatsapp: user.whatsapp,
+        city: user.city,
+        region: user.region,
+        district: user.district,
+        businessName: user.businessName,
+        profileImage: user.profileImage,
+        
+        profileComplete: !!(user.fname && user.sname && user.phone && user.whatsapp && user.city && user.region && user.district)
+      },
+      token: token,
+    });
+    
+    // 🔴 ADD THIS AFTER SENDING
+    console.log("✅ Response sent for user:", user.email);
+    
+  } catch (error) {
+    console.error("❌ Error logging in as user:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+
+// ==============================
+// ✅ SUSPEND USER
+// ==============================
+router.patch("/:id/suspend", adminAuth, async (req, res) => {
+  try {
+    const { reason, duration } = req.body;
+    
+    console.log("Suspending user:", req.params.id);
+    console.log("Request body:", { reason, duration });
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    console.log("Before suspension:", {
+      isSuspended: user.isSuspended,
+      suspensionReason: user.suspensionReason,
+      suspensionEndsAt: user.suspensionEndsAt
+    });
+
+    // Calculate suspension end date if duration provided
+    let suspensionEndsAt = null;
+    if (duration && duration > 0) {
+      suspensionEndsAt = new Date();
+      suspensionEndsAt.setDate(suspensionEndsAt.getDate() + duration);
+    }
+
+    user.isSuspended = true;
+    user.suspendedAt = new Date();
+    user.suspendedBy = req.admin.id;
+    user.suspensionReason = reason || "Violation of terms";
+    user.suspensionEndsAt = suspensionEndsAt;
+
+    // ✅ Increment token version to invalidate all existing sessions
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+
+    await user.save();
+
+    console.log("After suspension:", {
+      isSuspended: user.isSuspended,
+      suspensionReason: user.suspensionReason,
+      suspensionEndsAt: user.suspensionEndsAt
+    });
+
+    res.json({
+      success: true,
+      message: duration 
+        ? `User suspended for ${duration} days` 
+        : "User suspended permanently",
+      user: user.toSafeObject()
+    });
+  } catch (error) {
+    console.error("❌ Error suspending user:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ==============================
+// ✅ UNSUSPEND USER
+// ==============================
+router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    user.isSuspended = false;
+    user.suspendedAt = null;
+    user.suspendedBy = null;
+    user.suspensionReason = "";
+    user.suspensionEndsAt = null;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "User unsuspended successfully",
+      user: user.toSafeObject()
+    });
+  } catch (error) {
+    console.error("❌ Error unsuspending user:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 
 export default router;

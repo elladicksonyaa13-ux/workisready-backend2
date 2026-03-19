@@ -21,6 +21,11 @@ import adminHomeRoutes from "./routes/adminHomeRoutes.js";
 import adminProviderRoutes from "./routes/admin/providerRoutes.js";
 import adminTaskRoutes from "./routes/admin/taskRoutes.js";
 import regionRoutes from "./routes/regionRoutes.js";
+import dashboardRoutes from "./routes/admin/dashboard.js";
+import subadminRoutes from "./routes/admin/subadmins.js"; 
+import supersubadminRoutes from "./routes/admin/supersubadmins.js";
+
+
 
 
 // Load environment variables
@@ -86,6 +91,10 @@ app.use("/api/admin/tasks", adminTaskRoutes);
 
 // Admin user management routes
 app.use("/api/admin/users", adminUserRoutes);
+app.use("/api/admin/dashboard", dashboardRoutes);
+app.use("/api/admin/subadmins", subadminRoutes);
+app.use("/api/admin/supersubadmins", supersubadminRoutes);
+
 
 
 // Routes

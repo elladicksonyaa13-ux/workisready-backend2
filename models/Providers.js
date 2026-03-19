@@ -75,6 +75,28 @@ const providerSchema = new mongoose.Schema(
     whatsapp: { type: String },
     email: { type: String, required: true },
 
+    isSuspended: {
+    type: Boolean,
+    default: false,
+  },
+  suspendedAt: {
+    type: Date,
+    default: null,
+  },
+  suspendedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+  },
+  suspensionReason: {
+    type: String,
+    default: "",
+  },
+  suspensionEndsAt: {
+    type: Date,
+    default: null, // null means permanent until lifted
+  },
+
     // Media
     // In models/Provider.js
 profilePic: { 

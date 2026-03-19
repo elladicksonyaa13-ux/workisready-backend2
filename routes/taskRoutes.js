@@ -358,7 +358,8 @@ router.get("/region-stats/:regionName", async (req, res) => {
     // Get all open jobs in this region
     const jobs = await Task.find({
       status: 'open',
-      region: { $regex: new RegExp(`^${cleanRegion}$`, 'i') }
+      region: { $regex: new RegExp(`^${cleanRegion}$`, 'i') },
+      isSuspended: { $ne: true } // 👈 ADD THIS LINE NOT INCLUDING SUSPENDED JOBS IN THE COUNT
     }).select('mainCategory category');
     
     console.log(`✅ Found ${jobs.length} jobs in ${regionName}`);
@@ -503,7 +504,7 @@ router.get("/debug/region-test", async (req, res) => {
 
 
 
-// ✅ GET tasks with PROPER filtering
+// ✅ GET tasks with PROPER filtering (and suspension filter)
 router.get("/", async (req, res) => {
   try {
     const { 
@@ -520,6 +521,9 @@ router.get("/", async (req, res) => {
     console.log("🔍 INCOMING QUERY:", req.query);
     
     let filter = {};
+    
+    // ✅ 0. ALWAYS FILTER OUT SUSPENDED JOBS
+    filter.isSuspended = { $ne: true }; // Only show non-suspended jobs
     
     // ✅ 1. STATUS FILTER (with default)
     if (status) {
@@ -571,7 +575,7 @@ router.get("/", async (req, res) => {
     const [tasks, total] = await Promise.all([
       Task.find(filter)
         .populate("clientId", "name email phone whatsapp")
-        .select('title mainCategory category description region city district location status budget images createdAt dueDate')
+        .select('title mainCategory category description region city district location status budget images createdAt dueDate isSuspended')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit)),
@@ -585,18 +589,23 @@ router.get("/", async (req, res) => {
       console.log("✅ First task:", {
         title: tasks[0].title,
         mainCategory: tasks[0].mainCategory,
-        region: tasks[0].region
+        region: tasks[0].region,
+        isSuspended: tasks[0].isSuspended
       });
     } else {
       console.log("❌ No tasks found. Checking database...");
       
       // Debug: Check what's in the database
-      const sampleTasks = await Task.find({}).limit(3).select('title mainCategory region');
+      const sampleTasks = await Task.find({}).limit(3).select('title mainCategory region isSuspended');
       console.log("📊 Sample tasks in DB:", sampleTasks);
       
       // Debug: Check distinct mainCategory values
       const categories = await Task.distinct('mainCategory');
       console.log("📊 Available mainCategories:", categories);
+      
+      // Debug: Check suspended jobs count
+      const suspendedCount = await Task.countDocuments({ isSuspended: true });
+      console.log(`📊 Suspended jobs count: ${suspendedCount}`);
       
       // Debug: Check if your specific task exists
       const yourTask = await Task.findOne({ title: "health" });
@@ -604,7 +613,8 @@ router.get("/", async (req, res) => {
         console.log("✅ Your task exists:", {
           title: yourTask.title,
           mainCategory: yourTask.mainCategory,
-          region: yourTask.region
+          region: yourTask.region,
+          isSuspended: yourTask.isSuspended
         });
       } else {
         console.log("❌ Task 'health' not found");
@@ -620,7 +630,8 @@ router.get("/", async (req, res) => {
       total: total,
       page: parseInt(page),
       totalPages: Math.ceil(total / parseInt(limit)),
-      filter: filter
+      filter: filter,
+      suspendedFiltered: true // Indicate that suspended jobs are filtered out
     });
     
   } catch (error) {
@@ -632,7 +643,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ✅ GET task by ID (return new fields)
+// ✅ GET task by ID (return new fields) - WITH SUSPENSION CHECK
 router.get("/:id", async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
@@ -645,10 +656,29 @@ router.get("/:id", async (req, res) => {
       });
     }
     
+    // ✅ CHECK IF TASK IS SUSPENDED
+    if (task.isSuspended) {
+      console.log(`🚫 Suspended task accessed: ${task.title} (ID: ${req.params.id})`);
+      
+      // Return a 404 so it appears as "not found" to users
+      return res.status(404).json({ 
+        success: false, 
+        message: "This job is no longer available" 
+      });
+      
+      // Alternative: You could return a 403 with a specific message
+      // return res.status(403).json({ 
+      //   success: false, 
+      //   message: "This job has been suspended",
+      //   isSuspended: true
+      // });
+    }
+    
     res.json({ 
       success: true, 
       task 
     });
+    
   } catch (error) {
     console.error("❌ Error fetching task:", error);
     res.status(500).json({ 
