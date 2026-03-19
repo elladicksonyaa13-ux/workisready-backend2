@@ -108,7 +108,9 @@ router.get("/providers-by-region", async (req, res) => {
     
     // Get ALL providers with regions - NO FILTERING
     const providers = await Provider.find({ 
-      region: { $exists: true, $ne: null, $ne: "" }
+      region: { $exists: true, $ne: null, $ne: "" },
+      isSuspended: { $ne: true } // 👈 FILTER OUT SUSPENDED PROVIDERS
+
     })
     .select("region skills averageRating category")
     .lean();
@@ -280,7 +282,9 @@ router.get("/region/:regionName/category-counts", async (req, res) => {
           region: { 
             $regex: new RegExp(`^${regionName}$`, 'i') 
           },
-          category: { $exists: true, $ne: [], $ne: null }
+          category: { $exists: true, $ne: [], $ne: null },
+          isSuspended: { $ne: true } // 👈 FILTER OUT SUSPENDED PROVIDERS
+
         }
       },
       {
@@ -316,7 +320,8 @@ router.get("/region/:regionName/category-counts", async (req, res) => {
     // Get total providers in region
     const totalProviders = await Provider.countDocuments({
       // isApproved: true,  // <--- COMMENTED OUT
-      region: { $regex: new RegExp(`^${regionName}$`, 'i') }
+      region: { $regex: new RegExp(`^${regionName}$`, 'i') },
+      
     });
     
     console.log(`✅ Region stats for ${regionName}: ${totalProviders} total providers, ${results.length} categories`);
@@ -346,7 +351,9 @@ router.get("/region-category", async (req, res) => {
     
     // Build query object
     const query = {
-      region: { $regex: new RegExp(`^${region}$`, 'i') }
+      region: { $regex: new RegExp(`^${region}$`, 'i') },
+      isSuspended: { $ne: true } // 👈 FILTER OUT SUSPENDED PROVIDERS
+
     };
     
     // Define mapping of main categories to their sub-categories
@@ -1125,6 +1132,15 @@ router.get("/:id", async (req, res) => {
         .status(404)
         .json({ success: false, message: "Provider not found" });
     }
+
+    // ✅ CHECK IF PROVIDER IS SUSPENDED
+    if (provider.isSuspended) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "This provider is no longer available" 
+      });
+    }
+    
     res.json({ success: true, provider });
   } catch (error) {
     console.error("❌ Error fetching provider:", error);

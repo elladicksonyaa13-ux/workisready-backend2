@@ -31,6 +31,41 @@ export const auth = async (req, res, next) => {
       });
     }
 
+    // ✅ CHECK IF USER IS SUSPENDED
+    if (user.isSuspended) {
+  // Check if temporary suspension has expired
+  if (user.suspensionEndsAt && new Date(user.suspensionEndsAt) < new Date()) {
+    // Auto-unsuspend
+    user.isSuspended = false;
+    user.suspendedAt = null;
+    user.suspendedBy = null;
+    user.suspensionReason = "";
+    user.suspensionEndsAt = null;
+    await user.save();
+
+    console.log("✅ Suspension expired - auto unsuspended");
+  } else {
+    console.log("🚫 Suspended user blocked:", user.email);
+
+    return res.status(403).json({
+      success: false,
+      message: "Account suspended",
+      isSuspended: true,
+      suspensionReason: user.suspensionReason,
+      suspensionEndsAt: user.suspensionEndsAt
+    });
+  }
+}
+
+    // ✅ CHECK TOKEN VERSION (if you implement it)
+    if (user.tokenVersion !== undefined && decoded.tokenVersion !== user.tokenVersion) {
+      return res.status(401).json({
+        success: false,
+        message: 'Session expired. Please login again.',
+        sessionExpired: true
+      });
+    }
+
     // Attach user to request object
     req.user = user;
     console.log("User authenticated:", user.email);
@@ -60,8 +95,7 @@ export const auth = async (req, res, next) => {
   }
 };
 
-// Update your auth.js adminAuth middleware:
-// auth.js - Updated adminAuth middleware
+
 export const adminAuth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');

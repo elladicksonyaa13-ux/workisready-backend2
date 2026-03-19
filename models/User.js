@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema(
     // Basic Information
     name: {
       type: String,
-      required: true,
+      default: "",
       trim: true,
     },
     fname: {
@@ -135,6 +135,33 @@ whatsapp: {
       type: Date,
       default: null,
     },
+    // Suspension Fields
+  isSuspended: {
+    type: Boolean,
+    default: false,
+  },
+  suspendedAt: {
+    type: Date,
+    default: null,
+  },
+  suspendedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+  },
+  suspensionReason: {
+    type: String,
+    default: "",
+  },
+  suspensionEndsAt: {
+    type: Date,
+    default: null, // null means permanent until lifted
+  },
+
+  tokenVersion: {
+    type: Number,
+    default: 0,
+  },
 
     // Add these fields to your userSchema
 deletionRequested: {

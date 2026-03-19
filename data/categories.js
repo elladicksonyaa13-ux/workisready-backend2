@@ -15,7 +15,11 @@ export const serviceCategories = [
       "Laundry Services",
       "Masonry",
       "Plumbing",
-      "TV Repair"
+      "TV Repair",
+      "Barbering",
+      "Hair Dressing",
+      "Sewing & Tailoring",
+      "Manicures & Pedicures",
     ]
   },
   {
@@ -32,7 +36,11 @@ export const serviceCategories = [
       "Laundry",
       "Mason",
       "Plumber",
-      "TV Repairer"
+      "TV Repairer",
+      "Barber",
+      "Hair Dresser",
+      "Seamstress & Tailor",
+      "Nail Technician",
     ]
   },
   {

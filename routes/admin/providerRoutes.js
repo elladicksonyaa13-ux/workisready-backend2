@@ -1011,4 +1011,430 @@ router.post("/update-requests/:requestId/reject", adminAuth, async (req, res) =>
   }
 });
 
+
+
+// ==============================
+// ✅ SUSPEND PROVIDER
+// ==============================
+router.patch("/:id/suspend", adminAuth, async (req, res) => {
+  try {
+    console.log("Suspending provider by admin:", req.admin.email);
+    console.log("Provider ID:", req.params.id);
+    console.log("Request body:", req.body);
+
+    const { reason, duration } = req.body; // duration in days or null for permanent
+
+    const provider = await Provider.findById(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Provider not found" 
+      });
+    }
+
+    // Calculate suspension end date if duration provided
+    let suspensionEndsAt = null;
+    if (duration && duration > 0) {
+      suspensionEndsAt = new Date();
+      suspensionEndsAt.setDate(suspensionEndsAt.getDate() + duration);
+    }
+
+    // Update provider with suspension data
+    provider.isSuspended = true;
+    provider.suspendedAt = new Date();
+    provider.suspendedBy = req.admin.id;
+    provider.suspensionReason = reason || "Violation of terms";
+    provider.suspensionEndsAt = suspensionEndsAt;
+
+    await provider.save();
+
+    console.log(`✅ Provider ${provider.firstName} ${provider.surname} suspended:`, {
+      reason: reason || "Violation of terms",
+      duration: duration ? `${duration} days` : 'permanent',
+      endsAt: suspensionEndsAt
+    });
+
+    // Also suspend the associated user account if exists
+    // if (provider.userId) {
+    //   try {
+    //     const user = await User.findById(provider.userId);
+    //     if (user) {
+    //       user.isSuspended = true;
+    //       user.suspendedAt = new Date();
+    //       user.suspendedBy = req.admin.id;
+    //       user.suspensionReason = reason || "Provider account suspended";
+    //       user.suspensionEndsAt = suspensionEndsAt;
+    //       await user.save();
+    //       console.log(`✅ Associated user ${user.email} also suspended`);
+    //     }
+    //   } catch (userError) {
+    //     console.error("⚠️ Could not suspend associated user:", userError);
+    //     // Continue - don't fail the provider suspension if user suspension fails
+    //   }
+    // }
+
+    res.json({
+      success: true,
+      message: duration 
+        ? `Provider suspended for ${duration} days` 
+        : "Provider suspended permanently",
+      provider: {
+        _id: provider._id,
+        firstName: provider.firstName,
+        surname: provider.surname,
+        isSuspended: provider.isSuspended,
+        suspensionReason: provider.suspensionReason,
+        suspensionEndsAt: provider.suspensionEndsAt,
+        suspendedAt: provider.suspendedAt
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error suspending provider:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error while suspending provider" 
+    });
+  }
+});
+
+// ==============================
+// ✅ UNSUSPEND PROVIDER
+// ==============================
+router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
+  try {
+    console.log("Unsuspending provider by admin:", req.admin.email);
+    console.log("Provider ID:", req.params.id);
+
+    const provider = await Provider.findById(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Provider not found" 
+      });
+    }
+
+    // Clear all suspension data
+    provider.isSuspended = false;
+    provider.suspendedAt = null;
+    provider.suspendedBy = null;
+    provider.suspensionReason = "";
+    provider.suspensionEndsAt = null;
+
+    await provider.save();
+
+    console.log(`✅ Provider ${provider.firstName} ${provider.surname} unsuspended`);
+
+    // Also unsuspend the associated user account if exists
+    if (provider.userId) {
+      try {
+        const user = await User.findById(provider.userId);
+        if (user) {
+          user.isSuspended = false;
+          user.suspendedAt = null;
+          user.suspendedBy = null;
+          user.suspensionReason = "";
+          user.suspensionEndsAt = null;
+          await user.save();
+          console.log(`✅ Associated user ${user.email} also unsuspended`);
+        }
+      } catch (userError) {
+        console.error("⚠️ Could not unsuspend associated user:", userError);
+        // Continue - don't fail the provider unsuspension if user unsuspension fails
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Provider unsuspended successfully",
+      provider: {
+        _id: provider._id,
+        firstName: provider.firstName,
+        surname: provider.surname,
+        isSuspended: provider.isSuspended
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error unsuspending provider:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error while unsuspending provider" 
+    });
+  }
+});
+
+// ==============================
+// ✅ BULK SUSPEND PROVIDERS
+// ==============================
+router.patch("/bulk-suspend", adminAuth, async (req, res) => {
+  try {
+    console.log("Bulk suspend providers by admin:", req.admin.email);
+    console.log("Request body:", req.body);
+
+    const { ids, reason, duration } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "No providers selected" 
+      });
+    }
+
+    // Calculate suspension end date if duration provided
+    let suspensionEndsAt = null;
+    if (duration && duration > 0) {
+      suspensionEndsAt = new Date();
+      suspensionEndsAt.setDate(suspensionEndsAt.getDate() + duration);
+    }
+
+    // Update all selected providers
+    const result = await Provider.updateMany(
+      { _id: { $in: ids } },
+      { 
+        $set: { 
+          isSuspended: true,
+          suspendedAt: new Date(),
+          suspendedBy: req.admin.id,
+          suspensionReason: reason || "Violation of terms",
+          suspensionEndsAt: suspensionEndsAt
+        }
+      }
+    );
+
+    console.log(`✅ ${result.modifiedCount} providers suspended`);
+
+    // Also suspend associated users
+    try {
+      const providers = await Provider.find({ _id: { $in: ids } }).select('userId');
+      const userIds = providers
+        .map(p => p.userId)
+        .filter(id => id); // Remove null/undefined
+
+      if (userIds.length > 0) {
+        await User.updateMany(
+          { _id: { $in: userIds } },
+          { 
+            $set: { 
+              isSuspended: true,
+              suspendedAt: new Date(),
+              suspendedBy: req.admin.id,
+              suspensionReason: reason || "Provider account suspended",
+              suspensionEndsAt: suspensionEndsAt
+            }
+          }
+        );
+        console.log(`✅ ${userIds.length} associated users also suspended`);
+      }
+    } catch (userError) {
+      console.error("⚠️ Could not suspend associated users:", userError);
+      // Continue - don't fail the bulk operation
+    }
+
+    res.json({
+      success: true,
+      message: `${result.modifiedCount} provider(s) suspended successfully`,
+      modifiedCount: result.modifiedCount
+    });
+
+  } catch (error) {
+    console.error("❌ Error bulk suspending providers:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error while bulk suspending providers" 
+    });
+  }
+});
+
+// ==============================
+// ✅ BULK UNSUSPEND PROVIDERS
+// ==============================
+router.patch("/bulk-unsuspend", adminAuth, async (req, res) => {
+  try {
+    console.log("Bulk unsuspend providers by admin:", req.admin.email);
+    console.log("Request body:", req.body);
+
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "No providers selected" 
+      });
+    }
+
+    // Update all selected providers
+    const result = await Provider.updateMany(
+      { _id: { $in: ids } },
+      { 
+        $set: { 
+          isSuspended: false,
+          suspendedAt: null,
+          suspendedBy: null,
+          suspensionReason: "",
+          suspensionEndsAt: null
+        }
+      }
+    );
+
+    console.log(`✅ ${result.modifiedCount} providers unsuspended`);
+
+    // Also unsuspend associated users
+    try {
+      const providers = await Provider.find({ _id: { $in: ids } }).select('userId');
+      const userIds = providers
+        .map(p => p.userId)
+        .filter(id => id); // Remove null/undefined
+
+      if (userIds.length > 0) {
+        await User.updateMany(
+          { _id: { $in: userIds } },
+          { 
+            $set: { 
+              isSuspended: false,
+              suspendedAt: null,
+              suspendedBy: null,
+              suspensionReason: "",
+              suspensionEndsAt: null
+            }
+          }
+        );
+        console.log(`✅ ${userIds.length} associated users also unsuspended`);
+      }
+    } catch (userError) {
+      console.error("⚠️ Could not unsuspend associated users:", userError);
+      // Continue - don't fail the bulk operation
+    }
+
+    res.json({
+      success: true,
+      message: `${result.modifiedCount} provider(s) unsuspended successfully`,
+      modifiedCount: result.modifiedCount
+    });
+
+  } catch (error) {
+    console.error("❌ Error bulk unsuspending providers:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error while bulk unsuspending providers" 
+    });
+  }
+});
+
+// ==============================
+// ✅ GET SUSPENDED PROVIDERS
+// ==============================
+router.get("/suspended", adminAuth, async (req, res) => {
+  try {
+    console.log("Fetching suspended providers by admin:", req.admin.email);
+
+    const suspendedProviders = await Provider.find({ 
+      isSuspended: true 
+    })
+    .populate('userId', 'email phone')
+    .sort({ suspendedAt: -1 });
+
+    res.json({
+      success: true,
+      count: suspendedProviders.length,
+      providers: suspendedProviders
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching suspended providers:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error while fetching suspended providers" 
+    });
+  }
+});
+
+// ==============================
+// ✅ AUTO-UNSUSPEND EXPIRED PROVIDERS (CRON JOB ENDPOINT)
+// ==============================
+router.post("/check-expired", adminAuth, async (req, res) => {
+  try {
+    console.log("Checking for expired provider suspensions by admin:", req.admin.email);
+
+    const now = new Date();
+    
+    // Find providers where suspension has expired
+    const expiredProviders = await Provider.find({
+      isSuspended: true,
+      suspensionEndsAt: { $lt: now }
+    });
+
+    if (expiredProviders.length === 0) {
+      return res.json({
+        success: true,
+        message: "No expired suspensions found",
+        unsuspendedCount: 0
+      });
+    }
+
+    // Unsuspend all expired providers
+    const result = await Provider.updateMany(
+      {
+        isSuspended: true,
+        suspensionEndsAt: { $lt: now }
+      },
+      {
+        $set: {
+          isSuspended: false,
+          suspendedAt: null,
+          suspendedBy: null,
+          suspensionReason: "",
+          suspensionEndsAt: null
+        }
+      }
+    );
+
+    console.log(`✅ Auto-unsuspended ${result.modifiedCount} expired providers`);
+
+    // Also unsuspend associated users
+    try {
+      const userIds = expiredProviders
+        .map(p => p.userId)
+        .filter(id => id);
+
+      if (userIds.length > 0) {
+        await User.updateMany(
+          { _id: { $in: userIds } },
+          {
+            $set: {
+              isSuspended: false,
+              suspendedAt: null,
+              suspendedBy: null,
+              suspensionReason: "",
+              suspensionEndsAt: null
+            }
+          }
+        );
+        console.log(`✅ Auto-unsuspended ${userIds.length} associated users`);
+      }
+    } catch (userError) {
+      console.error("⚠️ Could not auto-unsuspend associated users:", userError);
+    }
+
+    res.json({
+      success: true,
+      message: `${result.modifiedCount} provider(s) auto-unsuspended`,
+      unsuspendedCount: result.modifiedCount,
+      providers: expiredProviders.map(p => ({
+        _id: p._id,
+        firstName: p.firstName,
+        surname: p.surname
+      }))
+    });
+
+  } catch (error) {
+    console.error("❌ Error checking expired provider suspensions:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error while checking expired suspensions" 
+    });
+  }
+});
+
+
 export default router;

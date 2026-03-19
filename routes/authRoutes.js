@@ -265,13 +265,32 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // ✅ CHECK FOR DELETED/SUSPENDED ACCOUNTS
-    if (user.accountSuspended) {
-      console.log("🚫 Account suspended for:", email);
-      return res.status(403).json({
-        success: false,
-        message: "Your account has been suspended. Please contact support.",
-      });
+
+    // ✅ CHECK FOR SUSPENSION
+    if (user.isSuspended) {
+      // Check if temporary suspension has expired
+      if (user.suspensionEndsAt && user.suspensionEndsAt < new Date()) {
+        // Auto-unsuspend if expired
+        user.isSuspended = false;
+        user.suspendedAt = null;
+        user.suspendedBy = null;
+        user.suspensionReason = "";
+        user.suspensionEndsAt = null;
+        await user.save();
+      } else {
+        // Account is still suspended
+        const suspensionMessage = user.suspensionEndsAt
+          ? `Your account has been suspended until ${new Date(user.suspensionEndsAt).toLocaleDateString()}. Reason: ${user.suspensionReason || 'Violation of termsx'}`
+          : `Your account has been suspended. Reason: ${user.suspensionReason || 'Violation of terms'}. Please contact admin for assistance.`;
+        
+        return res.status(403).json({
+          success: false,
+          message: suspensionMessage,
+          isSuspended: true,
+          suspensionReason: user.suspensionReason,
+          suspensionEndsAt: user.suspensionEndsAt
+        });
+      }
     }
 
     if (user.deletionRequested) {
@@ -310,7 +329,10 @@ router.post("/login", async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user._id },
+      { 
+    id: user._id,
+    tokenVersion: user.tokenVersion || 0// Include version in token
+  },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -329,6 +351,8 @@ router.post("/login", async (req, res) => {
     emailVerified: user.isEmailVerified, // Add this
     adminVerified: user.isApproved, // Add this
     profileComplete: user.profileComplete || false, // Add this
+    isSuspended: user.isSuspended, // Include this in response
+
   },
   token: token,
 });
@@ -341,7 +365,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ✅ UPDATE REGISTRATION TO SEND VERIFICATION EMAIL
 // ✅ UPDATE REGISTRATION TO SEND RESPONSE IMMEDIATELY
 router.post("/register", async (req, res) => {
   try {

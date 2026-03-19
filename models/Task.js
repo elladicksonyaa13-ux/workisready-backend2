@@ -108,7 +108,29 @@ const taskSchema = new mongoose.Schema({
     categories: [{ type: String }],
     regions: [{ type: String }],
     customScreens: [{ type: String }]
-  }
+  },
+
+   isSuspended: {
+    type: Boolean,
+    default: false,
+  },
+  suspendedAt: {
+    type: Date,
+    default: null,
+  },
+  suspendedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+  },
+  suspensionReason: {
+    type: String,
+    default: "",
+  },
+  suspensionEndsAt: {
+    type: Date,
+    default: null, // null means permanent until lifted
+  },
 }, {
   timestamps: true
 });
