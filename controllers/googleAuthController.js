@@ -76,7 +76,10 @@ export const googleAuth = async (req, res) => {
 
     // ✅ Generate JWT (same as your normal login)
     const jwtToken = jwt.sign(
-      { id: user._id },
+      { 
+    id: user._id,
+    tokenVersion: user.tokenVersion || 0  // ← ADD THIS
+  },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -190,7 +193,10 @@ export const googleAuthCallback = async (req, res) => {
 
     // Generate JWT
     const jwtToken = jwt.sign(
-      { id: user._id },
+      { 
+    id: user._id,
+    tokenVersion: user.tokenVersion || 0  // ← ADD THIS
+  },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
