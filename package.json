@@ -17,12 +17,15 @@
     "crypto": "^1.0.1",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "firebase-admin": "^13.7.0",
     "google-auth-library": "^10.5.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.2",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.13",
-    "resend": "^6.9.2"
+    "resend": "^6.9.2",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
   },
   "keywords": [],
   "devDependencies": {

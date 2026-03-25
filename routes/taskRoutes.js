@@ -6,6 +6,7 @@ import Task from "../models/Task.js";
 import { auth } from "../middleware/auth.js";
 
 import * as taskController from '../controllers/taskController.js';
+import NotificationService from "../services/notificationService.js";
 
 const router = express.Router();
 
@@ -172,6 +173,12 @@ router.post("/", auth, upload.array("images", 5), async (req, res) => {
 });
 
     await task.save();
+
+    // 🔔 Notify the job poster about matching featured providers
+    await NotificationService.notifyJobPosterAboutMatchingProviders(task._id);
+
+    // 🔔 Trigger notifications for featured workers
+    await NotificationService.notifyFeaturedWorkersAboutJob(task._id);
     
     console.log("✅ Task created successfully:", task._id);
     res.status(201).json({ 
@@ -299,6 +306,13 @@ router.put("/:id", auth, upload.array("newImages", 5), async (req, res) => {
     task.images = [...parsedExistingImages, ...newUploadedImages];
 
     const updatedTask = await task.save();
+
+
+    // 🔔 Notify the job poster about matching featured providers
+    await NotificationService.notifyJobPosterAboutMatchingProviders(task._id);
+
+    // 🔔 Trigger notifications for featured workers
+    await NotificationService.notifyFeaturedWorkersAboutJob(task._id);
 
     console.log("✅ Task updated successfully:", updatedTask._id);
     res.json({

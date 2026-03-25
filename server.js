@@ -24,6 +24,9 @@ import regionRoutes from "./routes/regionRoutes.js";
 import dashboardRoutes from "./routes/admin/dashboard.js";
 import subadminRoutes from "./routes/admin/subadmins.js"; 
 import supersubadminRoutes from "./routes/admin/supersubadmins.js";
+import notificationRoutes from "./routes/notifications.js"
+import adminLogsRoutes from './routes/admin/logs.js';
+import publicLogsRoutes from './routes/logs.js';
 
 
 
@@ -81,6 +84,19 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // app.use("/uploads/avatars", express.static(path.join(__dirname, "uploads/avatars")));
 // app.use("/uploads", express.static("uploads"));
 // ====================================================
+// Add this before all routes to debug
+app.use((req, res, next) => {
+  console.log(`🔍 ${req.method} ${req.originalUrl}`);
+  next();
+});
+
+// Public routes for logging (requires auth)
+app.use('/api/logs', publicLogsRoutes);
+
+
+// Admin routes
+app.use('/api/admin/logs', adminLogsRoutes);
+
 
 // Admin routes
 app.use("/api/admin", AdminRoutes);
@@ -107,6 +123,7 @@ app.use("/api/saved-workers", savedWorkerRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/regions", regionRoutes);
 
+app.use('/api/notifications', notificationRoutes);
 
 
 // Basic route

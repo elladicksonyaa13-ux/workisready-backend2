@@ -383,7 +383,7 @@ router.get("/featured-providers", async (req, res) => {
         // match: { isApproved: true }
       })
       .sort({ order: 1, createdAt: -1 })
-      .limit(8);
+      // .limit(8);
       
       // Filter out null providers and map to consistent format
       featuredProviders = featuredFromCollection
@@ -416,7 +416,7 @@ router.get("/featured-providers", async (req, res) => {
       })
       .select('firstName surname businessName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt')
       .sort({ createdAt: -1 })
-      .limit(8 - featuredProviders.length);
+      // .limit(8 - featuredProviders.length);
       
       // Format providers
       const formattedProviders = providersFromFlag.map(provider => {

@@ -8,6 +8,8 @@ import auth from "../middleware/auth.js";
 import Task from "../models/Task.js";
 import SavedTask from "../models/savedTask.js";
 import SavedProvider from "../models/SavedProvider.js";
+import ActivityLog from "../models/ActivityLog.js";  // ✅ Import ActivityLog
+import Provider from '../models/Providers.js';
 
 const router = express.Router();
 
@@ -200,6 +202,25 @@ router.get("/stats", auth, async (req, res) => {
       (Date.now() - new Date(joinedDate)) / (1000 * 60 * 60 * 24)
     );
 
+     // 4. Count profile views - views on THIS user's profile
+    const profileViews = await ActivityLog.countDocuments({
+      targetId: userId,
+      targetModel: 'User',
+      actionType: 'view'
+    });
+
+    // 5. Count profile saves - how many times THIS user's profile was saved
+    // First, find the provider ID associated with this user
+    const provider = await Provider.findOne({ userId });
+    let profileSaves = 0;
+    
+    if (provider) {
+      // Count how many times this provider was saved
+      profileSaves = await SavedProvider.countDocuments({ 
+        providerId: provider._id 
+      });
+    }
+
     res.json({
       success: true,
       stats: {
@@ -208,6 +229,8 @@ router.get("/stats", auth, async (req, res) => {
         savedProviders,
         myServices: req.user.services ? req.user.services.length : 0,
         joined: joinedDate,
+        profileViews,
+        profileSaves
       },
     });
   } catch (error) {
