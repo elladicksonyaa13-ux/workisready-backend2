@@ -10,6 +10,7 @@ import ProviderUpdateRequest from "../../models/ProviderUpdateRequest.js";
 
 // Import controller functions
 import * as providerController from '../../controllers/providerController.js';
+import NotificationService from "../../services/notificationService.js";
 
 
 const router = express.Router();
@@ -678,6 +679,11 @@ router.patch("/:id/feature", adminAuth, async (req, res) => {
     // Update provider
     provider.isFeatured = newFeaturedStatus;
     await provider.save();
+
+    // If becoming featured, notify job posters
+    if (provider.isFeatured) {
+      await NotificationService.notifyJobPosterAboutMatchingProviders(provider.userId);
+    }
     
     // Also update FeaturedProvider collection (NOT FeaturedService)
     try {

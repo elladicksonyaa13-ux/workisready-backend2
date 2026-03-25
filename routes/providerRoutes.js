@@ -1112,7 +1112,7 @@ router.get("/search", async (req, res) => {
         { category: { $regex: q, $options: "i" } },
         { skills: { $elemMatch: { $regex: q, $options: "i" } } },
       ],
-    }).select("firstname surname category skills profilePic _id experience rating");
+    }).select("firstname surname category skills profilePic _id experience rating region city district");
 
     res.json({ success: true, providers });
   } catch (error) {
@@ -1126,15 +1126,35 @@ router.get("/search", async (req, res) => {
 /* -------------------------------------------------------------------------- */
 router.get("/:id", async (req, res) => {
   try {
-    const provider = await Provider.findById(req.params.id);
+    const { id } = req.params;
+    console.log(`🔍 Looking for provider with ID: ${id}`);
+    
+    // Try to find by provider _id first
+    // If you just want the userId as a string without populating the user object
+let provider = await Provider.findById(id);
+    
+    // If not found by provider ID, try to find by userId
     if (!provider) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Provider not found" });
+      console.log(`Provider not found by _id, trying by userId: ${id}`);
+      provider = await Provider.findOne({ userId: id });
+    }
+    
+    // If still not found, return 404
+    if (!provider) {
+      console.log(`❌ No provider found with ID: ${id}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: "Provider not found" 
+      });
     }
 
+    console.log(`✅ Found provider: ${provider.firstName} ${provider.surname}`);
+        console.log(`📧 User ID in provider: ${provider.userId}`); // ✅ Add this log
+
+    
     // ✅ CHECK IF PROVIDER IS SUSPENDED
     if (provider.isSuspended) {
+      console.log(`🚫 Provider is suspended: ${provider.firstName} ${provider.surname}`);
       return res.status(404).json({ 
         success: false, 
         message: "This provider is no longer available" 
@@ -1142,6 +1162,7 @@ router.get("/:id", async (req, res) => {
     }
     
     res.json({ success: true, provider });
+    
   } catch (error) {
     console.error("❌ Error fetching provider:", error);
     res.status(500).json({ success: false, message: "Server error" });
