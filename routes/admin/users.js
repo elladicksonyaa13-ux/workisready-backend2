@@ -1,8 +1,8 @@
 import express from "express";
 import User from "../../models/User.js";
-import { adminAuth } from "../../middleware/auth.js"; // Import named export
+import { adminAuth } from "../../middleware/auth.js";
 import jwt from "jsonwebtoken";
-
+import { createAdminLog } from '../../middleware/logAdminActivity.js';
 
 const router = express.Router();
 
@@ -11,12 +11,9 @@ const router = express.Router();
 // ==============================
 router.get("/", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK ADMIN ROLE - adminAuth already verified it
-    // The admin is available at req.admin (not req.user)
     console.log("Admin accessing users:", req.admin.email);
     
     const users = await User.find().select("-password");
-     // Add hasPendingChanges flag to each user
     const usersWithPendingFlag = users.map(user => {
       const userObj = user.toObject();
       userObj.hasPendingChanges = user.hasPendingChanges || false;
@@ -30,7 +27,25 @@ router.get("/", adminAuth, async (req, res) => {
 });
 
 // ==============================
-// ✅ CREATE USER (ADMIN) - UPDATED
+// ✅ GET SINGLE USER
+// ==============================
+router.get("/:id", adminAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password");
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ==============================
+// ✅ CREATE USER (ADMIN)
 // ==============================
 router.post("/", adminAuth, async (req, res) => {
   try {
@@ -38,13 +53,11 @@ router.post("/", adminAuth, async (req, res) => {
 
     const { fname, sname, email, password, phone, whatsapp, userType } = req.body;
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ success: false, message: "User already exists" });
     }
 
-    // Create new user (automatically approved AND email verified if created by admin)
     const newUser = new User({
       fname,
       sname,
@@ -53,8 +66,8 @@ router.post("/", adminAuth, async (req, res) => {
       phone,
       whatsapp,
       userType: userType || "client",
-      isApproved: true, // Admin-created users are automatically approved
-      isVerified: true, // Add this line
+      isApproved: true,
+      isVerified: true,
       lastApprovedAt: new Date()
     });
 
@@ -62,6 +75,20 @@ router.post("/", adminAuth, async (req, res) => {
 
     const userResponse = newUser.toObject();
     delete userResponse.password;
+
+    // ✅ LOG: Create User
+    await createAdminLog({
+      req,
+      action: 'CREATE_USER',
+      entityType: 'user',
+      entityId: newUser._id,
+      entityName: newUser.email,
+      details: { 
+        name: `${fname} ${sname}`,
+        userType: userType || "client",
+        email
+      }
+    });
 
     res.status(201).json({
       success: true,
@@ -74,9 +101,8 @@ router.post("/", adminAuth, async (req, res) => {
   }
 });
 
-
 // ==============================
-// ✅ APPROVE USER ACCOUNT - UPDATED
+// ✅ APPROVE USER ACCOUNT
 // ==============================
 router.patch("/:id/approve", adminAuth, async (req, res) => {
   try {
@@ -87,19 +113,28 @@ router.patch("/:id/approve", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // ✅ UPDATE BOTH FIELDS
     user.isApproved = true;
-    user.isVerified = true; // Add this line
+    user.isVerified = true;
     user.lastApprovedAt = new Date();
     user.hasPendingChanges = false;
     user.pendingProfileData = null;
-    user.verificationToken = undefined; // Clear verification token
-    user.verificationTokenExpires = undefined; // Clear expiry
+    user.verificationToken = undefined;
+    user.verificationTokenExpires = undefined;
     
     await user.save();
 
     const userResponse = user.toObject();
     delete userResponse.password;
+
+    // ✅ LOG: Approve User
+    await createAdminLog({
+      req,
+      action: 'APPROVE_USER',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: { userName: user.name || `${user.fname} ${user.sname}`, userEmail: user.email }
+    });
 
     res.json({
       success: true,
@@ -111,12 +146,12 @@ router.patch("/:id/approve", adminAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 // ==============================
 // ✅ DISAPPROVE USER ACCOUNT
 // ==============================
 router.patch("/:id/disapprove", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Disapproving user by admin:", req.admin.email);
 
     const user = await User.findById(req.params.id);
@@ -124,16 +159,24 @@ router.patch("/:id/disapprove", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Update approval status
     user.isApproved = false;
-    user.hasPendingChanges = false; // Clear any pending changes when disapproving
+    user.hasPendingChanges = false;
     user.pendingProfileData = null;
     
     await user.save();
 
-    // Remove password from response
     const userResponse = user.toObject();
     delete userResponse.password;
+
+    // ✅ LOG: Disapprove User
+    await createAdminLog({
+      req,
+      action: 'DISAPPROVE_USER',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: { userName: user.name || `${user.fname} ${user.sname}`, userEmail: user.email }
+    });
 
     res.json({
       success: true,
@@ -151,7 +194,6 @@ router.patch("/:id/disapprove", adminAuth, async (req, res) => {
 // ==============================
 router.patch("/:id/approve-changes", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Approving changes by admin:", req.admin.email);
 
     const user = await User.findById(req.params.id);
@@ -163,10 +205,8 @@ router.patch("/:id/approve-changes", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "No pending changes to approve" });
     }
 
-    // Apply pending changes to user profile
     const pendingData = user.pendingProfileData;
     
-    // Update user fields from pending data
     if (pendingData.fname !== undefined) user.fname = pendingData.fname;
     if (pendingData.sname !== undefined) user.sname = pendingData.sname;
     if (pendingData.businessName !== undefined) user.businessName = pendingData.businessName;
@@ -178,7 +218,6 @@ router.patch("/:id/approve-changes", adminAuth, async (req, res) => {
     if (pendingData.city !== undefined) user.city = pendingData.city;
     if (pendingData.profileImage !== undefined) user.profileImage = pendingData.profileImage;
 
-    // Update original profile data to current state
     user.originalProfileData = {
       fname: user.fname,
       sname: user.sname,
@@ -193,7 +232,6 @@ router.patch("/:id/approve-changes", adminAuth, async (req, res) => {
       updatedAt: new Date()
     };
 
-    // Clear pending changes
     user.pendingProfileData = null;
     user.hasPendingChanges = false;
     user.pendingChangesSubmittedAt = null;
@@ -201,9 +239,18 @@ router.patch("/:id/approve-changes", adminAuth, async (req, res) => {
 
     await user.save();
 
-    // Remove password from response
     const userResponse = user.toObject();
     delete userResponse.password;
+
+    // ✅ LOG: Approve Changes
+    await createAdminLog({
+      req,
+      action: 'APPROVE_USER_CHANGES',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: { changesApproved: pendingData }
+    });
 
     res.json({
       success: true,
@@ -221,7 +268,6 @@ router.patch("/:id/approve-changes", adminAuth, async (req, res) => {
 // ==============================
 router.patch("/:id/reject-changes", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Rejecting changes by admin:", req.admin.email);
 
     const user = await User.findById(req.params.id);
@@ -233,16 +279,25 @@ router.patch("/:id/reject-changes", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "No pending changes to reject" });
     }
 
-    // Clear pending changes
+    const rejectedData = user.pendingProfileData;
     user.pendingProfileData = null;
     user.hasPendingChanges = false;
     user.pendingChangesSubmittedAt = null;
 
     await user.save();
 
-    // Remove password from response
     const userResponse = user.toObject();
     delete userResponse.password;
+
+    // ✅ LOG: Reject Changes
+    await createAdminLog({
+      req,
+      action: 'REJECT_USER_CHANGES',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: { changesRejected: rejectedData }
+    });
 
     res.json({
       success: true,
@@ -256,7 +311,7 @@ router.patch("/:id/reject-changes", adminAuth, async (req, res) => {
 });
 
 // ==============================
-// ✅ BULK APPROVE USERS - UPDATED
+// ✅ BULK APPROVE USERS
 // ==============================
 router.patch("/bulk-approve", adminAuth, async (req, res) => {
   try {
@@ -268,22 +323,29 @@ router.patch("/bulk-approve", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "No users selected" });
     }
 
-    // Update all selected users
     const result = await User.updateMany(
       { _id: { $in: ids } },
       { 
         $set: { 
           isApproved: true,
-          isVerified: true, // Add this line
+          isVerified: true,
           lastApprovedAt: new Date(),
           hasPendingChanges: false,
           pendingProfileData: null,
           pendingChangesSubmittedAt: null,
-          verificationToken: undefined, // Clear verification token
-          verificationTokenExpires: undefined // Clear expiry
+          verificationToken: undefined,
+          verificationTokenExpires: undefined
         }
       }
     );
+
+    // ✅ LOG: Bulk Approve Users
+    await createAdminLog({
+      req,
+      action: 'BULK_APPROVE_USERS',
+      entityType: 'user',
+      details: { count: result.modifiedCount, userIds: ids }
+    });
 
     res.json({
       success: true,
@@ -301,7 +363,6 @@ router.patch("/bulk-approve", adminAuth, async (req, res) => {
 // ==============================
 router.patch("/bulk-disapprove", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Bulk disapprove by admin:", req.admin.email);
 
     const { ids } = req.body;
@@ -310,7 +371,6 @@ router.patch("/bulk-disapprove", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "No users selected" });
     }
 
-    // Update all selected users
     const result = await User.updateMany(
       { _id: { $in: ids } },
       { 
@@ -322,6 +382,14 @@ router.patch("/bulk-disapprove", adminAuth, async (req, res) => {
         }
       }
     );
+
+    // ✅ LOG: Bulk Disapprove Users
+    await createAdminLog({
+      req,
+      action: 'BULK_DISAPPROVE_USERS',
+      entityType: 'user',
+      details: { count: result.modifiedCount, userIds: ids }
+    });
 
     res.json({
       success: true,
@@ -335,12 +403,11 @@ router.patch("/bulk-disapprove", adminAuth, async (req, res) => {
 });
 
 // ==============================
-// ✅ UPDATE USER (ADMIN) - IMPROVED
+// ✅ UPDATE USER (ADMIN)
 // ==============================
 router.put("/:id", adminAuth, async (req, res) => {
   try {
     console.log("Updating user by admin:", req.admin.email);
-    console.log("Request body:", req.body);
 
     const { fname, sname, email, phone, whatsapp, userType } = req.body;
 
@@ -349,10 +416,17 @@ router.put("/:id", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Track if name needs updating
+    const oldUserData = {
+      fname: user.fname,
+      sname: user.sname,
+      email: user.email,
+      phone: user.phone,
+      whatsapp: user.whatsapp,
+      userType: user.userType
+    };
+
     let nameUpdated = false;
 
-    // Update user fields
     if (fname !== undefined) {
       user.fname = fname;
       nameUpdated = true;
@@ -363,10 +437,8 @@ router.put("/:id", adminAuth, async (req, res) => {
       nameUpdated = true;
     }
     
-    // Update name field if either fname or sname changed
     if (nameUpdated) {
       user.name = `${user.fname || ''} ${user.sname || ''}`.trim();
-      // If both are empty, set to email username as fallback
       if (!user.name && user.email) {
         user.name = user.email.split('@')[0];
       }
@@ -379,9 +451,28 @@ router.put("/:id", adminAuth, async (req, res) => {
 
     await user.save();
 
-    // Remove password from response
     const userResponse = user.toObject();
     delete userResponse.password;
+
+    // ✅ LOG: Edit User
+    await createAdminLog({
+      req,
+      action: 'EDIT_USER',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: {
+        before: oldUserData,
+        after: {
+          fname: user.fname,
+          sname: user.sname,
+          email: user.email,
+          phone: user.phone,
+          whatsapp: user.whatsapp,
+          userType: user.userType
+        }
+      }
+    });
 
     res.json({
       success: true,
@@ -391,7 +482,6 @@ router.put("/:id", adminAuth, async (req, res) => {
   } catch (error) {
     console.error("❌ Error updating user:", error);
     
-    // Handle duplicate key errors
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
       return res.status(400).json({ 
@@ -403,12 +493,12 @@ router.put("/:id", adminAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 // ==============================
-// ✅ DELETE USER (ADMIN)
+// ✅ DELETE USER (ADMIN) - FIXED
 // ==============================
 router.delete("/:id", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Deleting user by admin:", req.admin.email);
 
     const user = await User.findById(req.params.id);
@@ -416,7 +506,20 @@ router.delete("/:id", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    const userName = user.name || `${user.fname || ''} ${user.sname || ''}`.trim() || user.email;
+    const userEmail = user.email;
+
     await user.deleteOne();
+
+    // ✅ LOG: Delete User (fixed undefined variables)
+    await createAdminLog({
+      req,
+      action: 'DELETE_USER',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: userName,
+      details: { userEmail }
+    });
 
     res.json({
       success: true,
@@ -433,7 +536,6 @@ router.delete("/:id", adminAuth, async (req, res) => {
 // ==============================
 router.delete("/bulk-delete", adminAuth, async (req, res) => {
   try {
-    // NO NEED TO CHECK - adminAuth already verified admin access
     console.log("Bulk delete by admin:", req.admin.email);
 
     const { ids } = req.body;
@@ -442,8 +544,15 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "No users selected" });
     }
 
-    // Delete all selected users
     const result = await User.deleteMany({ _id: { $in: ids } });
+
+    // ✅ LOG: Bulk Delete Users
+    await createAdminLog({
+      req,
+      action: 'BULK_DELETE_USERS',
+      entityType: 'user',
+      details: { count: result.deletedCount, userIds: ids }
+    });
 
     res.json({
       success: true,
@@ -478,8 +587,6 @@ router.get("/pending-changes", adminAuth, async (req, res) => {
   }
 });
 
-
-
 // ==============================
 // ✅ LOGIN AS USER (ADMIN)
 // ==============================
@@ -492,31 +599,25 @@ router.post("/:id/login-as-user", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // 🔴 ADD THIS DEBUG LOG - See what's actually in the user object
-    console.log("🔥 RAW USER DATA FROM DATABASE:", {
-      _id: user._id,
-      fname: user.fname,
-      sname: user.sname,
-      phone: user.phone,
-      whatsapp: user.whatsapp,
-      city: user.city,
-      region: user.region,
-      district: user.district,
-      businessName: user.businessName,
-      profileImage: user.profileImage
-    });
-
-    // Generate token
     const token = jwt.sign(
-       { 
-    id: user._id,
-    tokenVersion: user.tokenVersion || 0  // ← ADD THIS
-  },
+      { 
+        id: user._id,
+        tokenVersion: user.tokenVersion || 0
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // Return user data
+    // ✅ LOG: Login As User
+    await createAdminLog({
+      req,
+      action: 'LOGIN_AS_USER',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: { adminImpersonating: req.admin.email }
+    });
+
     res.json({
       success: true,
       message: "Login successful",
@@ -527,10 +628,6 @@ router.post("/:id/login-as-user", adminAuth, async (req, res) => {
         userType: user.userType,
         isVerified: user.isVerified,
         isApproved: user.isApproved,
-        emailVerified: user.isVerified,
-        adminVerified: user.isApproved,
-        
-        // 🔴 THESE SHOULD HAVE VALUES
         fname: user.fname,
         sname: user.sname,
         phone: user.phone,
@@ -540,21 +637,16 @@ router.post("/:id/login-as-user", adminAuth, async (req, res) => {
         district: user.district,
         businessName: user.businessName,
         profileImage: user.profileImage,
-        
         profileComplete: !!(user.fname && user.sname && user.phone && user.whatsapp && user.city && user.region && user.district)
       },
       token: token,
     });
-    
-    // 🔴 ADD THIS AFTER SENDING
-    console.log("✅ Response sent for user:", user.email);
     
   } catch (error) {
     console.error("❌ Error logging in as user:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 
 // ==============================
 // ✅ SUSPEND USER
@@ -564,20 +656,12 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
     const { reason, duration } = req.body;
     
     console.log("Suspending user:", req.params.id);
-    console.log("Request body:", { reason, duration });
 
     const user = await User.findById(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    console.log("Before suspension:", {
-      isSuspended: user.isSuspended,
-      suspensionReason: user.suspensionReason,
-      suspensionEndsAt: user.suspensionEndsAt
-    });
-
-    // Calculate suspension end date if duration provided
     let suspensionEndsAt = null;
     if (duration && duration > 0) {
       suspensionEndsAt = new Date();
@@ -589,16 +673,22 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
     user.suspendedBy = req.admin.id;
     user.suspensionReason = reason || "Violation of terms";
     user.suspensionEndsAt = suspensionEndsAt;
-
-    // ✅ Increment token version to invalidate all existing sessions
     user.tokenVersion = (user.tokenVersion || 0) + 1;
 
     await user.save();
 
-    console.log("After suspension:", {
-      isSuspended: user.isSuspended,
-      suspensionReason: user.suspensionReason,
-      suspensionEndsAt: user.suspensionEndsAt
+    // ✅ LOG: Suspend User
+    await createAdminLog({
+      req,
+      action: 'SUSPEND_USER',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: { 
+        reason: reason || "Violation of terms", 
+        duration: duration || "permanent",
+        userName: user.name || `${user.fname} ${user.sname}`
+      }
     });
 
     res.json({
@@ -632,6 +722,16 @@ router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
 
     await user.save();
 
+    // ✅ LOG: Unsuspend User
+    await createAdminLog({
+      req,
+      action: 'UNSUSPEND_USER',
+      entityType: 'user',
+      entityId: req.params.id,
+      entityName: user.email,
+      details: { userName: user.name || `${user.fname} ${user.sname}` }
+    });
+
     res.json({
       success: true,
       message: "User unsuspended successfully",
@@ -642,6 +742,5 @@ router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 
 export default router;

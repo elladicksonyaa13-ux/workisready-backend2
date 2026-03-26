@@ -11,6 +11,8 @@ import ProviderUpdateRequest from "../../models/ProviderUpdateRequest.js";
 // Import controller functions
 import * as providerController from '../../controllers/providerController.js';
 import NotificationService from "../../services/notificationService.js";
+import { createAdminLog } from '../../middleware/logAdminActivity.js';
+
 
 
 const router = express.Router();
@@ -261,6 +263,27 @@ router.put("/:id", adminAuth,
           .json({ success: false, message: "Provider not found" });
       }
 
+      // ✅ Store old provider data BEFORE any changes for logging
+      const oldProviderData = {
+        firstName: provider.firstName,
+        surname: provider.surname,
+        businessName: provider.businessName,
+        email: provider.email,
+        phone: provider.phone,
+        whatsapp: provider.whatsapp,
+        category: provider.category,
+        skills: provider.skills,
+        bio: provider.bio,
+        experience: provider.experience,
+        hourlyRate: provider.hourlyRate,
+        availability: provider.availability,
+        isApproved: provider.isApproved,
+        city: provider.city,
+        region: provider.region,
+        district: provider.district,
+        isFeatured: provider.isFeatured
+      };
+
       // Parse updates from FormData
       const updates = req.body;
       
@@ -311,8 +334,8 @@ router.put("/:id", adminAuth,
       }
       
       // Update fullName - prioritize business name if available
-provider.fullName = provider.businessName || `${provider.firstName} ${provider.surname}`.trim();
-console.log("Updated fullName:", provider.fullName);
+      provider.fullName = provider.businessName || `${provider.firstName} ${provider.surname}`.trim();
+      console.log("Updated fullName:", provider.fullName);
       
       // ✅ CRITICAL FIX: File updates - Store relative paths, not full URLs
       
@@ -398,6 +421,40 @@ console.log("Updated fullName:", provider.fullName);
       
       // Save provider
       await provider.save();
+
+      // ✅ Prepare after data for logging
+      const afterData = {
+        firstName: provider.firstName,
+        surname: provider.surname,
+        businessName: provider.businessName,
+        email: provider.email,
+        phone: provider.phone,
+        whatsapp: provider.whatsapp,
+        category: provider.category,
+        skills: provider.skills,
+        bio: provider.bio,
+        experience: provider.experience,
+        hourlyRate: provider.hourlyRate,
+        availability: provider.availability,
+        isApproved: provider.isApproved,
+        city: provider.city,
+        region: provider.region,
+        district: provider.district,
+        isFeatured: provider.isFeatured
+      };
+
+      // ✅ LOG: Edit Worker - FIXED
+      await createAdminLog({
+        req,
+        action: 'EDIT_WORKER',
+        entityType: 'worker',
+        entityId: req.params.id,
+        entityName: provider.fullName,
+        details: { 
+          before: oldProviderData, 
+          after: afterData 
+        }
+      });
       
       // Prepare response with full URLs using helper function
       const providerObj = provider.toObject();
@@ -441,6 +498,8 @@ router.delete("/:id", adminAuth, async (req, res) => {
         .json({ success: false, message: "Provider not found" });
     }
     
+    const providerName = provider.businessName || `${provider.firstName} ${provider.surname}`;
+
     // Delete profile picture
     if (provider.profilePic) {
       try {
@@ -480,6 +539,16 @@ router.delete("/:id", adminAuth, async (req, res) => {
     
     // Delete from database
     await Provider.findByIdAndDelete(req.params.id);
+
+    // ✅ LOG: Delete Worker
+    await createAdminLog({
+      req,
+      action: 'DELETE_WORKER',
+      entityType: 'worker',
+      entityId: req.params.id,
+      entityName: providerName,
+      details: { workerName: providerName, email: provider.email, phone: provider.phone }
+    });
     
     res.json({
       success: true,
@@ -504,6 +573,7 @@ router.patch("/:id/approve", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "Provider not found" });
     }
     
+    const oldStatus = provider.isApproved;
     const { isApproved } = req.body;
     
     if (isApproved !== undefined) {
@@ -513,6 +583,18 @@ router.patch("/:id/approve", adminAuth, async (req, res) => {
     }
     
     await provider.save();
+
+    const providerName = provider.businessName || `${provider.firstName} ${provider.surname}`;
+
+    // ✅ LOG: Approve/Disapprove Worker
+    await createAdminLog({
+      req,
+      action: provider.isApproved ? 'APPROVE_WORKER' : 'DISAPPROVE_WORKER',
+      entityType: 'worker',
+      entityId: req.params.id,
+      entityName: providerName,
+      details: { before: oldStatus, after: provider.isApproved }
+    });
     
     // ✅ FIX: Use helper function
     const providerObj = provider.toObject();
@@ -640,6 +722,14 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
     
     // Delete from database
     await Provider.deleteMany({ _id: { $in: ids } });
+
+    // ✅ LOG: Bulk Delete Workers
+    await createAdminLog({
+      req,
+      action: 'BULK_DELETE_WORKERS',
+      entityType: 'worker',
+      details: { count: result.deletedCount, providerIds: ids, providerNames }
+    });
     
     res.json({
       success: true,
@@ -669,6 +759,7 @@ router.patch("/:id/feature", adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: "Provider not found" });
     }
     
+    const oldStatus = provider.isFeatured;
     const { isFeatured } = req.body;
     const newFeaturedStatus = isFeatured !== undefined ? isFeatured : !provider.isFeatured;
     
@@ -676,9 +767,22 @@ router.patch("/:id/feature", adminAuth, async (req, res) => {
     console.log(`Current isFeatured: ${provider.isFeatured}`);
     console.log(`New isFeatured: ${newFeaturedStatus}`);
     
+    
     // Update provider
     provider.isFeatured = newFeaturedStatus;
     await provider.save();
+
+    const providerName = provider.businessName || `${provider.firstName} ${provider.surname}`;
+    
+    // ✅ LOG: Feature/Unfeature Worker
+    await createAdminLog({
+      req,
+      action: newFeaturedStatus ? 'FEATURE_WORKER' : 'UNFEATURE_WORKER',
+      entityType: 'worker',
+      entityId: req.params.id,
+      entityName: providerName,
+      details: { before: oldStatus, after: newFeaturedStatus }
+    });
 
     // If becoming featured, notify job posters
     if (provider.isFeatured) {
@@ -865,6 +969,15 @@ router.patch("/bulk-feature", adminAuth, async (req, res) => {
     } catch (featuredError) {
       console.log("Bulk FeaturedService update note:", featuredError.message);
     }
+
+
+     // ✅ LOG: Bulk Feature Workers
+    await createAdminLog({
+      req,
+      action: isFeatured ? 'BULK_FEATURE_WORKERS' : 'BULK_UNFEATURE_WORKERS',
+      entityType: 'worker',
+      details: { count: result.modifiedCount, providerIds: ids, isFeatured }
+    });
     
     res.json({ 
       success: true, 
@@ -961,6 +1074,16 @@ router.post("/update-requests/:requestId/approve", adminAuth, async (req, res) =
     await request.save();
     
     // Notify user via email or notification (optional)
+
+    // ✅ LOG: Approve Update Request
+    await createAdminLog({
+      req,
+      action: 'APPROVE_WORKER_UPDATE',
+      entityType: 'worker',
+      entityId: provider._id,
+      entityName: provider.businessName || `${provider.firstName} ${provider.surname}`,
+      details: { requestId, changes }
+    });
     
     res.json({ 
       success: true, 
@@ -1001,6 +1124,15 @@ router.post("/update-requests/:requestId/reject", adminAuth, async (req, res) =>
     request.processedAt = new Date();
     request.processedBy = req.user.id;
     await request.save();
+
+    // ✅ LOG: Reject Update Request
+    await createAdminLog({
+      req,
+      action: 'REJECT_WORKER_UPDATE',
+      entityType: 'worker',
+      entityId: request.providerId,
+      details: { requestId, reason: reason || "No reason provided" }
+    });
     
     res.json({ 
       success: true, 
@@ -1038,6 +1170,8 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
       });
     }
 
+    const providerName = provider.businessName || `${provider.firstName} ${provider.surname}`;
+
     // Calculate suspension end date if duration provided
     let suspensionEndsAt = null;
     if (duration && duration > 0) {
@@ -1053,6 +1187,16 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
     provider.suspensionEndsAt = suspensionEndsAt;
 
     await provider.save();
+
+    // ✅ LOG: Suspend Worker
+    await createAdminLog({
+      req,
+      action: 'SUSPEND_WORKER',
+      entityType: 'worker',
+      entityId: req.params.id,
+      entityName: providerName,
+      details: { reason: reason || "Violation of terms", duration: duration ? `${duration} days` : "permanent" }
+    });
 
     console.log(`✅ Provider ${provider.firstName} ${provider.surname} suspended:`, {
       reason: reason || "Violation of terms",
@@ -1120,6 +1264,8 @@ router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
       });
     }
 
+      const providerName = provider.businessName || `${provider.firstName} ${provider.surname}`;
+
     // Clear all suspension data
     provider.isSuspended = false;
     provider.suspendedAt = null;
@@ -1128,6 +1274,16 @@ router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
     provider.suspensionEndsAt = null;
 
     await provider.save();
+
+     // ✅ LOG: Unsuspend Worker
+    await createAdminLog({
+      req,
+      action: 'UNSUSPEND_WORKER',
+      entityType: 'worker',
+      entityId: req.params.id,
+      entityName: providerName,
+      details: { workerName: providerName }
+    });
 
     console.log(`✅ Provider ${provider.firstName} ${provider.surname} unsuspended`);
 
@@ -1237,6 +1393,14 @@ router.patch("/bulk-suspend", adminAuth, async (req, res) => {
       // Continue - don't fail the bulk operation
     }
 
+    // ✅ LOG: Bulk Suspend Workers
+    await createAdminLog({
+      req,
+      action: 'BULK_SUSPEND_WORKERS',
+      entityType: 'worker',
+      details: { count: result.modifiedCount, providerIds: ids, reason: reason || "Violation of terms", duration: duration ? `${duration} days` : "permanent" }
+    });
+
     res.json({
       success: true,
       message: `${result.modifiedCount} provider(s) suspended successfully`,
@@ -1311,6 +1475,14 @@ router.patch("/bulk-unsuspend", adminAuth, async (req, res) => {
       console.error("⚠️ Could not unsuspend associated users:", userError);
       // Continue - don't fail the bulk operation
     }
+
+     // ✅ LOG: Bulk Unsuspend Workers
+    await createAdminLog({
+      req,
+      action: 'BULK_UNSUSPEND_WORKERS',
+      entityType: 'worker',
+      details: { count: result.modifiedCount, providerIds: ids }
+    });
 
     res.json({
       success: true,
@@ -1421,6 +1593,15 @@ router.post("/check-expired", adminAuth, async (req, res) => {
     } catch (userError) {
       console.error("⚠️ Could not auto-unsuspend associated users:", userError);
     }
+
+    // ✅ LOG: Auto Unsuspend Workers
+    await createAdminLog({
+      req,
+      action: 'AUTO_UNSUSPEND_WORKERS',
+      entityType: 'worker',
+      details: { count: result.modifiedCount, providerIds: expiredProviders.map(p => p._id) }
+    });
+
 
     res.json({
       success: true,

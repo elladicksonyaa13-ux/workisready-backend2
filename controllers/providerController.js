@@ -1,5 +1,7 @@
 import Provider from "../models/Providers.js";
 import fs from "fs";
+import { createAdminLog } from '../middleware/logAdminActivity.js';
+
 
 // ✅ Get provider by userId
 export const getProviderByUserId = async (req, res) => {
@@ -126,6 +128,9 @@ export const updatePromotion = async (req, res) => {
         });
       }
 
+      // Store old promotion state for logging
+    const oldPromoteOn = provider.promoteOn ? { ...provider.promoteOn } : {};
+
       // Update promotion settings
       provider.promoteOn = {
         homeScreen: promoteOn.homeScreen || false,
@@ -140,6 +145,18 @@ export const updatePromotion = async (req, res) => {
       provider.updatedAt = Date.now();
 
       await provider.save();
+
+      const providerName = provider.businessName || `${provider.firstName} ${provider.surname}`;
+    
+    // ✅ LOG: Promote Worker
+    await createAdminLog({
+      req,
+      action: 'PROMOTE_WORKER',
+      entityType: 'worker',
+      entityId: req.params.id,
+      entityName: providerName,
+      details: { before: oldPromoteOn, after: promoteOn }
+    });
 
       res.json({
         success: true,
@@ -202,6 +219,14 @@ export const bulkPromote = async (req, res) => {
           }
         }
       );
+
+      // ✅ LOG: Bulk Promote Workers
+    await createAdminLog({
+      req,
+      action: 'BULK_PROMOTE_WORKERS',
+      entityType: 'worker',
+      details: { count: result.modifiedCount, providerIds: ids, promoteSettings: promoteOn }
+    });
 
       res.json({
         success: true,

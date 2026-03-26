@@ -435,4 +435,26 @@ router.post("/request-deletion", auth, async (req, res) => {
   }
 });
 
+// routes/users.js
+router.post('/push-token', auth, async (req, res) => {
+  try {
+    const { token, platform } = req.body;
+    
+    await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        pushToken: token,
+        pushTokenPlatform: platform,
+        pushTokenUpdatedAt: new Date()
+      },
+      { new: true }
+    );
+    
+    res.json({ success: true, message: 'Push token saved' });
+  } catch (error) {
+    console.error('Error saving push token:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;

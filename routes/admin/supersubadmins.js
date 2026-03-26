@@ -1,9 +1,11 @@
+// routes/admin/supersubadmins.js
 import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import Admin from "../../models/Admin.js";
 import { adminAuth } from "../../middleware/auth.js";
+import { createAdminLog } from '../../middleware/logAdminActivity.js';
 
 const router = express.Router();
 
@@ -41,7 +43,6 @@ const upload = multer({
 // ========================
 router.get("/", adminAuth, async (req, res) => {
   try {
-    // Only superadmin can view supersubadmins
     if (req.admin.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
@@ -49,24 +50,16 @@ router.get("/", adminAuth, async (req, res) => {
       });
     }
 
-    const supersubadmins = await Admin.find({ 
-      role: 'supersubadmin' 
-    })
-    .populate('createdBy', 'name email')
-    .sort({ createdAt: -1 });
+    const supersubadmins = await Admin.find({ role: 'supersubadmin' })
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 });
 
     const adminResponses = supersubadmins.map(admin => admin.toSafeObject());
 
-    res.json({
-      success: true,
-      supersubadmins: adminResponses
-    });
+    res.json({ success: true, supersubadmins: adminResponses });
   } catch (error) {
     console.error("Error fetching super sub-admins:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -75,7 +68,6 @@ router.get("/", adminAuth, async (req, res) => {
 // ========================
 router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
   try {
-    // Only superadmin can create supersubadmins
     if (req.admin.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
@@ -85,16 +77,11 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
 
     const { name, email, password, phone, permissions } = req.body;
 
-    // Check if email already exists
     const existingAdmin = await Admin.findOne({ email });
     if (existingAdmin) {
-      return res.status(400).json({
-        success: false,
-        message: "Email already in use"
-      });
+      return res.status(400).json({ success: false, message: "Email already in use" });
     }
 
-    // Parse permissions if they came as string
     let permissionsArray = [];
     if (permissions) {
       try {
@@ -104,7 +91,6 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
       }
     }
 
-    // Create new supersubadmin
     const newAdmin = new Admin({
       name,
       email,
@@ -116,12 +102,26 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
       createdBy: req.admin._id
     });
 
-    // Add profile image if uploaded
     if (req.file) {
       newAdmin.profileImage = `uploads/admins/${req.file.filename}`;
     }
 
     await newAdmin.save();
+
+    // ✅ LOG: Create Super Sub-Admin
+    await createAdminLog({
+      req,
+      action: 'CREATE_ADMIN',
+      entityType: 'admin',
+      entityId: newAdmin._id,
+      entityName: newAdmin.name,
+      details: { 
+        role: 'supersubadmin', 
+        email: newAdmin.email,
+        permissions: permissionsArray,
+        createdBy: req.admin.email
+      }
+    });
 
     res.status(201).json({
       success: true,
@@ -130,10 +130,7 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating super sub-admin:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -142,7 +139,6 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
 // ========================
 router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) => {
   try {
-    // Only superadmin can update supersubadmins
     if (req.admin.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
@@ -154,24 +150,24 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
     const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Super sub-admin not found"
-      });
+      return res.status(404).json({ success: false, message: "Super sub-admin not found" });
     }
 
-    // Check if email is being changed and already exists
+    // Store old data for logging
+    const oldData = {
+      name: admin.name,
+      email: admin.email,
+      phone: admin.phone,
+      isActive: admin.isActive
+    };
+
     if (email && email !== admin.email) {
       const existingAdmin = await Admin.findOne({ email });
       if (existingAdmin) {
-        return res.status(400).json({
-          success: false,
-          message: "Email already in use"
-        });
+        return res.status(400).json({ success: false, message: "Email already in use" });
       }
     }
 
-    // Update fields
     if (name) admin.name = name;
     if (email) admin.email = email;
     if (phone !== undefined) admin.phone = phone;
@@ -180,9 +176,7 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
       admin.password = password;
     }
 
-    // Handle profile image
     if (req.file) {
-      // Delete old image if exists
       if (admin.profileImage) {
         const oldPath = path.join(admin.profileImage);
         if (fs.existsSync(oldPath)) {
@@ -196,6 +190,28 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
 
     await admin.save();
 
+    // Prepare after data
+    const afterData = {
+      name: admin.name,
+      email: admin.email,
+      phone: admin.phone,
+      isActive: admin.isActive
+    };
+
+    // ✅ LOG: Edit Super Sub-Admin
+    await createAdminLog({
+      req,
+      action: 'EDIT_ADMIN',
+      entityType: 'admin',
+      entityId: req.params.id,
+      entityName: admin.name,
+      details: { 
+        before: oldData, 
+        after: afterData,
+        role: 'supersubadmin'
+      }
+    });
+
     res.json({
       success: true,
       message: "Super sub-admin updated successfully",
@@ -203,10 +219,7 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
     });
   } catch (error) {
     console.error("Error updating super sub-admin:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -215,7 +228,6 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
 // ========================
 router.patch("/:id/permissions", adminAuth, async (req, res) => {
   try {
-    // Only superadmin can update permissions
     if (req.admin.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
@@ -227,14 +239,26 @@ router.patch("/:id/permissions", adminAuth, async (req, res) => {
     const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Super sub-admin not found"
-      });
+      return res.status(404).json({ success: false, message: "Super sub-admin not found" });
     }
 
+    const oldPermissions = [...(admin.permissions || [])];
     admin.permissions = permissions || [];
     await admin.save();
+
+    // ✅ LOG: Update Admin Permissions
+    await createAdminLog({
+      req,
+      action: 'UPDATE_ADMIN_PERMISSIONS',
+      entityType: 'admin',
+      entityId: req.params.id,
+      entityName: admin.name,
+      details: { 
+        before: oldPermissions, 
+        after: admin.permissions,
+        role: 'supersubadmin'
+      }
+    });
 
     res.json({
       success: true,
@@ -243,10 +267,7 @@ router.patch("/:id/permissions", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating permissions:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -255,7 +276,6 @@ router.patch("/:id/permissions", adminAuth, async (req, res) => {
 // ========================
 router.patch("/:id/status", adminAuth, async (req, res) => {
   try {
-    // Only superadmin can toggle status
     if (req.admin.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
@@ -267,14 +287,26 @@ router.patch("/:id/status", adminAuth, async (req, res) => {
     const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Super sub-admin not found"
-      });
+      return res.status(404).json({ success: false, message: "Super sub-admin not found" });
     }
 
+    const oldStatus = admin.isActive;
     admin.isActive = isActive;
     await admin.save();
+
+    // ✅ LOG: Toggle Admin Status
+    await createAdminLog({
+      req,
+      action: 'TOGGLE_ADMIN_STATUS',
+      entityType: 'admin',
+      entityId: req.params.id,
+      entityName: admin.name,
+      details: { 
+        before: oldStatus, 
+        after: isActive,
+        role: 'supersubadmin'
+      }
+    });
 
     res.json({
       success: true,
@@ -282,10 +314,7 @@ router.patch("/:id/status", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Error toggling super sub-admin status:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -294,7 +323,6 @@ router.patch("/:id/status", adminAuth, async (req, res) => {
 // ========================
 router.delete("/:id", adminAuth, async (req, res) => {
   try {
-    // Only superadmin can delete
     if (req.admin.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
@@ -305,13 +333,12 @@ router.delete("/:id", adminAuth, async (req, res) => {
     const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Super sub-admin not found"
-      });
+      return res.status(404).json({ success: false, message: "Super sub-admin not found" });
     }
 
-    // Delete profile image if exists
+    const adminName = admin.name;
+    const adminEmail = admin.email;
+
     if (admin.profileImage) {
       const imagePath = path.join(admin.profileImage);
       if (fs.existsSync(imagePath)) {
@@ -323,16 +350,27 @@ router.delete("/:id", adminAuth, async (req, res) => {
 
     await admin.deleteOne();
 
+    // ✅ LOG: Delete Super Sub-Admin
+    await createAdminLog({
+      req,
+      action: 'DELETE_ADMIN',
+      entityType: 'admin',
+      entityId: req.params.id,
+      entityName: adminName,
+      details: { 
+        role: 'supersubadmin',
+        email: adminEmail,
+        deletedBy: req.admin.email
+      }
+    });
+
     res.json({
       success: true,
       message: "Super sub-admin deleted successfully"
     });
   } catch (error) {
     console.error("Error deleting super sub-admin:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -341,7 +379,6 @@ router.delete("/:id", adminAuth, async (req, res) => {
 // ========================
 router.delete("/bulk-delete", adminAuth, async (req, res) => {
   try {
-    // Only superadmin can bulk delete
     if (req.admin.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
@@ -352,14 +389,14 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
     const { ids } = req.body;
 
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No super sub-admins selected"
-      });
+      return res.status(400).json({ success: false, message: "No super sub-admins selected" });
     }
 
-    // Delete profile images
+    // Get admin names for logging
     const admins = await Admin.find({ _id: { $in: ids } });
+    const adminNames = admins.map(a => a.name);
+
+    // Delete profile images
     admins.forEach(admin => {
       if (admin.profileImage) {
         const imagePath = path.join(admin.profileImage);
@@ -373,6 +410,19 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
 
     const result = await Admin.deleteMany({ _id: { $in: ids } });
 
+    // ✅ LOG: Bulk Delete Super Sub-Admins
+    await createAdminLog({
+      req,
+      action: 'BULK_DELETE_ADMINS',
+      entityType: 'admin',
+      details: { 
+        count: result.deletedCount, 
+        adminIds: ids,
+        adminNames,
+        role: 'supersubadmin'
+      }
+    });
+
     res.json({
       success: true,
       message: `${result.deletedCount} super sub-admin(s) deleted successfully`,
@@ -380,10 +430,7 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Error bulk deleting super sub-admins:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 

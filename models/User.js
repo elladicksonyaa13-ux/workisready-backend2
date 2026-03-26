@@ -52,7 +52,6 @@ const userSchema = new mongoose.Schema(
     },
     
     // Contact Information
-    // In models/User.js
 phone: {
   type: String,
   default: null,
@@ -156,6 +155,19 @@ whatsapp: {
   suspensionEndsAt: {
     type: Date,
     default: null, // null means permanent until lifted
+  },
+  pushToken: {
+    type: String,
+    default: null
+  },
+  pushTokenPlatform: {
+    type: String,
+    enum: ['ios', 'android', null],
+    default: null
+  },
+  pushTokenUpdatedAt: {
+    type: Date,
+    default: null
   },
 
   tokenVersion: {

@@ -1,13 +1,14 @@
-// routes/adminTaskRoutes.js
 import express from "express";
-import { adminAuth } from "../../middleware/auth.js"; // Use adminAuth middleware
+import { adminAuth } from "../../middleware/auth.js";
 import Task from "../../models/Task.js";
-
 import * as taskController from '../../controllers/taskController.js';
+import { createAdminLog } from '../../middleware/logAdminActivity.js';
 
 const router = express.Router();
 
-// ✅ GET all tasks (admin view)
+// ==============================
+// ✅ GET ALL TASKS (ADMIN)
+// ==============================
 router.get("/", adminAuth, async (req, res) => {
   try {
     const tasks = await Task.find()
@@ -28,7 +29,28 @@ router.get("/", adminAuth, async (req, res) => {
   }
 });
 
-// ✅ DELETE single task (admin)
+// ==============================
+// ✅ GET SINGLE TASK
+// ==============================
+router.get("/:id", adminAuth, async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id)
+      .populate('clientId', 'name email phone whatsapp userType');
+    
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+    
+    res.json({ success: true, task });
+  } catch (error) {
+    console.error("Error fetching task:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ==============================
+// ✅ DELETE SINGLE TASK
+// ==============================
 router.delete("/:id", adminAuth, async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
@@ -40,7 +62,18 @@ router.delete("/:id", adminAuth, async (req, res) => {
       });
     }
     
+    const taskTitle = task.title;
     await task.deleteOne();
+    
+    // ✅ LOG: Delete Job
+    await createAdminLog({
+      req,
+      action: 'DELETE_JOB',
+      entityType: 'job',
+      entityId: req.params.id,
+      entityName: taskTitle,
+      details: { jobTitle: taskTitle, clientId: task.clientId }
+    });
     
     res.json({
       success: true,
@@ -55,7 +88,9 @@ router.delete("/:id", adminAuth, async (req, res) => {
   }
 });
 
-// ✅ BULK DELETE tasks (admin)
+// ==============================
+// ✅ BULK DELETE TASKS
+// ==============================
 router.post("/bulk-delete", adminAuth, async (req, res) => {
   try {
     const { taskIds } = req.body;
@@ -67,7 +102,23 @@ router.post("/bulk-delete", adminAuth, async (req, res) => {
       });
     }
     
+    // Get task titles for logging
+    const tasks = await Task.find({ _id: { $in: taskIds } }).select('title');
+    const taskTitles = tasks.map(t => t.title);
+    
     const result = await Task.deleteMany({ _id: { $in: taskIds } });
+    
+    // ✅ LOG: Bulk Delete Jobs
+    await createAdminLog({
+      req,
+      action: 'BULK_DELETE_JOBS',
+      entityType: 'job',
+      details: { 
+        count: result.deletedCount, 
+        jobIds: taskIds,
+        jobTitles: taskTitles
+      }
+    });
     
     res.json({
       success: true,
@@ -83,11 +134,75 @@ router.post("/bulk-delete", adminAuth, async (req, res) => {
   }
 });
 
-// In your backend, create routes for tasks promotion:
-router.patch('/:id/promote', adminAuth, taskController.updatePromotion);
-router.patch('/bulk-promote', adminAuth, taskController.bulkPromote);
+// ==============================
+// ✅ PROMOTE JOB
+// ==============================
+router.patch('/:id/promote', adminAuth, async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+    
+    const oldPromoteOn = { ...task.promoteOn };
+    const { promoteOn } = req.body;
+    task.promoteOn = promoteOn;
+    await task.save();
+    
+    // ✅ LOG: Promote Job
+    await createAdminLog({
+      req,
+      action: 'PROMOTE_JOB',
+      entityType: 'job',
+      entityId: req.params.id,
+      entityName: task.title,
+      details: { 
+        before: oldPromoteOn,
+        after: promoteOn
+      }
+    });
+    
+    res.json({ success: true, task });
+  } catch (error) {
+    console.error("Error promoting job:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
-
+// ==============================
+// ✅ BULK PROMOTE
+// ==============================
+router.patch('/bulk-promote', adminAuth, async (req, res) => {
+  try {
+    const { taskIds, promoteOn } = req.body;
+    
+    if (!taskIds || !Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ success: false, message: "No tasks selected" });
+    }
+    
+    const result = await Task.updateMany(
+      { _id: { $in: taskIds } },
+      { $set: { promoteOn } }
+    );
+    
+    // ✅ LOG: Bulk Promote Jobs
+    await createAdminLog({
+      req,
+      action: 'BULK_PROMOTE_JOBS',
+      entityType: 'job',
+      details: { 
+        count: result.modifiedCount, 
+        jobIds: taskIds,
+        promoteSettings: promoteOn
+      }
+    });
+    
+    res.json({ success: true, modifiedCount: result.modifiedCount });
+  } catch (error) {
+    console.error("Error bulk promoting jobs:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
 // ==============================
 // ✅ SUSPEND JOB
@@ -98,7 +213,7 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
     console.log("Job ID:", req.params.id);
     console.log("Request body:", req.body);
 
-    const { reason, duration } = req.body; // duration in days or null for permanent
+    const { reason, duration } = req.body;
 
     const task = await Task.findById(req.params.id);
     if (!task) {
@@ -108,14 +223,12 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
       });
     }
 
-    // Calculate suspension end date if duration provided
     let suspensionEndsAt = null;
     if (duration && duration > 0) {
       suspensionEndsAt = new Date();
       suspensionEndsAt.setDate(suspensionEndsAt.getDate() + duration);
     }
 
-    // Update job with suspension data
     task.isSuspended = true;
     task.suspendedAt = new Date();
     task.suspendedBy = req.admin.id;
@@ -124,11 +237,20 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
 
     await task.save();
 
-    console.log(`✅ Job ${task.title} suspended:`, {
-      reason: reason || "Violation of terms",
-      duration: duration ? `${duration} days` : 'permanent',
-      endsAt: suspensionEndsAt
+    // ✅ LOG: Suspend Job
+    await createAdminLog({
+      req,
+      action: 'SUSPEND_JOB',
+      entityType: 'job',
+      entityId: req.params.id,
+      entityName: task.title,
+      details: { 
+        reason: reason || "Violation of terms", 
+        duration: duration ? `${duration} days` : "permanent"
+      }
     });
+
+    console.log(`✅ Job ${task.title} suspended`);
 
     res.json({
       success: true,
@@ -160,7 +282,6 @@ router.patch("/:id/suspend", adminAuth, async (req, res) => {
 router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
   try {
     console.log("Unsuspending job by admin:", req.admin.email);
-    console.log("Job ID:", req.params.id);
 
     const task = await Task.findById(req.params.id);
     if (!task) {
@@ -170,7 +291,6 @@ router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
       });
     }
 
-    // Clear all suspension data
     task.isSuspended = false;
     task.suspendedAt = null;
     task.suspendedBy = null;
@@ -178,6 +298,16 @@ router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
     task.suspensionEndsAt = null;
 
     await task.save();
+
+    // ✅ LOG: Unsuspend Job
+    await createAdminLog({
+      req,
+      action: 'UNSUSPEND_JOB',
+      entityType: 'job',
+      entityId: req.params.id,
+      entityName: task.title,
+      details: { jobTitle: task.title }
+    });
 
     console.log(`✅ Job ${task.title} unsuspended`);
 
@@ -206,7 +336,6 @@ router.patch("/:id/unsuspend", adminAuth, async (req, res) => {
 router.patch("/bulk-suspend", adminAuth, async (req, res) => {
   try {
     console.log("Bulk suspend jobs by admin:", req.admin.email);
-    console.log("Request body:", req.body);
 
     const { ids, reason, duration } = req.body;
 
@@ -217,14 +346,12 @@ router.patch("/bulk-suspend", adminAuth, async (req, res) => {
       });
     }
 
-    // Calculate suspension end date if duration provided
     let suspensionEndsAt = null;
     if (duration && duration > 0) {
       suspensionEndsAt = new Date();
       suspensionEndsAt.setDate(suspensionEndsAt.getDate() + duration);
     }
 
-    // Update all selected jobs
     const result = await Task.updateMany(
       { _id: { $in: ids } },
       { 
@@ -237,6 +364,19 @@ router.patch("/bulk-suspend", adminAuth, async (req, res) => {
         }
       }
     );
+
+    // ✅ LOG: Bulk Suspend Jobs
+    await createAdminLog({
+      req,
+      action: 'BULK_SUSPEND_JOBS',
+      entityType: 'job',
+      details: { 
+        count: result.modifiedCount, 
+        jobIds: ids,
+        reason: reason || "Violation of terms",
+        duration: duration ? `${duration} days` : "permanent"
+      }
+    });
 
     console.log(`✅ ${result.modifiedCount} jobs suspended`);
 
@@ -261,7 +401,6 @@ router.patch("/bulk-suspend", adminAuth, async (req, res) => {
 router.patch("/bulk-unsuspend", adminAuth, async (req, res) => {
   try {
     console.log("Bulk unsuspend jobs by admin:", req.admin.email);
-    console.log("Request body:", req.body);
 
     const { ids } = req.body;
 
@@ -272,7 +411,6 @@ router.patch("/bulk-unsuspend", adminAuth, async (req, res) => {
       });
     }
 
-    // Update all selected jobs
     const result = await Task.updateMany(
       { _id: { $in: ids } },
       { 
@@ -285,6 +423,14 @@ router.patch("/bulk-unsuspend", adminAuth, async (req, res) => {
         }
       }
     );
+
+    // ✅ LOG: Bulk Unsuspend Jobs
+    await createAdminLog({
+      req,
+      action: 'BULK_UNSUSPEND_JOBS',
+      entityType: 'job',
+      details: { count: result.modifiedCount, jobIds: ids }
+    });
 
     console.log(`✅ ${result.modifiedCount} jobs unsuspended`);
 
@@ -308,8 +454,6 @@ router.patch("/bulk-unsuspend", adminAuth, async (req, res) => {
 // ==============================
 router.get("/suspended", adminAuth, async (req, res) => {
   try {
-    console.log("Fetching suspended jobs by admin:", req.admin.email);
-
     const suspendedJobs = await Task.find({ 
       isSuspended: true 
     }).sort({ suspendedAt: -1 });
@@ -338,7 +482,6 @@ router.post("/check-expired", adminAuth, async (req, res) => {
 
     const now = new Date();
     
-    // Find jobs where suspension has expired
     const expiredJobs = await Task.find({
       isSuspended: true,
       suspensionEndsAt: { $lt: now }
@@ -352,7 +495,6 @@ router.post("/check-expired", adminAuth, async (req, res) => {
       });
     }
 
-    // Unsuspend all expired jobs
     const result = await Task.updateMany(
       {
         isSuspended: true,
@@ -368,6 +510,18 @@ router.post("/check-expired", adminAuth, async (req, res) => {
         }
       }
     );
+
+    // ✅ LOG: Auto Unsuspend Jobs
+    await createAdminLog({
+      req,
+      action: 'AUTO_UNSUSPEND_JOBS',
+      entityType: 'job',
+      details: { 
+        count: result.modifiedCount,
+        jobIds: expiredJobs.map(j => j._id),
+        jobTitles: expiredJobs.map(j => j.title)
+      }
+    });
 
     console.log(`✅ Auto-unsuspended ${result.modifiedCount} expired jobs`);
 
@@ -389,7 +543,5 @@ router.post("/check-expired", adminAuth, async (req, res) => {
     });
   }
 });
-
-
 
 export default router;
