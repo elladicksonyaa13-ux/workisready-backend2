@@ -93,7 +93,7 @@ class NotificationService {
       }
 
       // Optional: Send push notifications
-      await this.sendPushNotifications(notifications);
+      await this.sendPushNotifications(saved);
 
     } catch (error) {
       console.error('❌ Error notifying workers:', error);
@@ -276,6 +276,9 @@ async notifyJobPosterAboutMatchingProviders(taskId) {
     if (notifications.length > 0) {
       const saved = await Notification.insertMany(notifications);
       console.log(`✅ Created ${saved.length} notifications for user: ${task.clientId}`);
+
+      // ✅ Send push notifications
+  await this.sendPushNotifications(saved);
       
       saved.forEach(n => {
         console.log(`   - Notification ID: ${n._id}, Related ID: ${n.relatedId}`);
@@ -483,6 +486,71 @@ async notifyJobPosterAboutMatchingProviders(taskId) {
 //     console.error('❌ Error notifying job poster about matching providers:', error);
 //   }
 // }
+
+
+// services/notificationService.js
+
+async sendPushNotifications(notifications) {
+  try {
+    for (const notif of notifications) {
+      const user = await User.findById(notif.userId);
+      
+      if (user?.pushToken) {
+        const message = {
+          token: user.pushToken,
+          notification: {
+            title: notif.title,
+            body: notif.message,
+          },
+          data: {
+            type: notif.type,
+            relatedId: notif.relatedId?.toString() || '',
+            notificationId: notif._id?.toString() || '',
+          },
+          android: {
+            priority: 'high',
+            notification: {
+              channelId: 'workisready_notifications',
+              sound: 'default',
+              color: '#0099cc',
+            },
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: 'default',
+                badge: 1,
+              },
+            },
+          },
+        };
+        
+        await this.sendToFCM(message);
+      }
+    }
+  } catch (error) {
+    console.error('Error sending push notifications:', error);
+  }
+}
+
+async sendToFCM(message) {
+  try {
+    const response = await fetch('https://fcm.googleapis.com/fcm/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `key=${process.env.FCM_SERVER_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message),
+    });
+    
+    const data = await response.json();
+    console.log('📨 FCM response:', data);
+  } catch (error) {
+    console.error('Error sending to FCM:', error);
+  }
+}
+
 
 
 }

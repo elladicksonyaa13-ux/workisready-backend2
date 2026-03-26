@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import Admin from "../../models/Admin.js";
 import { adminAuth } from "../../middleware/auth.js";
+import { createAdminLog } from '../../middleware/logAdminActivity.js';
 
 const router = express.Router();
 
@@ -42,7 +43,6 @@ const upload = multer({
 // ========================
 router.get("/", adminAuth, async (req, res) => {
   try {
-    // Only superadmin and admin can view subadmins
     if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -50,22 +50,13 @@ router.get("/", adminAuth, async (req, res) => {
       });
     }
 
-    const admins = await Admin.find({ 
-  role: 'subadmin' 
-}).sort({ createdAt: -1 });
+    const admins = await Admin.find({ role: 'subadmin' }).sort({ createdAt: -1 });
+    const subadmins = admins.map(admin => admin.toSafeObject());
 
-const subadmins = admins.map(admin => admin.toSafeObject());  // ← USE toSafeObject FOR EACH
-
-    res.json({
-      success: true,
-      subadmins
-    });
+    res.json({ success: true, subadmins });
   } catch (error) {
     console.error("Error fetching subadmins:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -74,7 +65,6 @@ const subadmins = admins.map(admin => admin.toSafeObject());  // ← USE toSafeO
 // ========================
 router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
   try {
-    // Only superadmin and admin can create subadmins
     if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -84,16 +74,11 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
 
     const { name, email, password, phone } = req.body;
 
-    // Check if email already exists
     const existingAdmin = await Admin.findOne({ email });
     if (existingAdmin) {
-      return res.status(400).json({
-        success: false,
-        message: "Email already in use"
-      });
+      return res.status(400).json({ success: false, message: "Email already in use" });
     }
 
-    // Create new subadmin
     const newAdmin = new Admin({
       name,
       email,
@@ -101,18 +86,30 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
       phone,
       role: 'subadmin',
       isActive: true,
-      createdBy: req.admin._id  // ← ADD THIS LINE to track who created
-
+      createdBy: req.admin._id
     });
 
-    // Add profile image if uploaded
     if (req.file) {
       newAdmin.profileImage = `uploads/admins/${req.file.filename}`;
     }
 
     await newAdmin.save();
 
-    const adminResponse = newAdmin.toSafeObject();  // ← USE THE toSafeObject METHOD
+    const adminResponse = newAdmin.toSafeObject();
+
+    // ✅ LOG: Create Sub-Admin
+    await createAdminLog({
+      req,
+      action: 'CREATE_ADMIN',
+      entityType: 'admin',
+      entityId: newAdmin._id,
+      entityName: newAdmin.name,
+      details: { 
+        role: 'subadmin', 
+        email: newAdmin.email,
+        createdBy: req.admin.email
+      }
+    });
 
     res.status(201).json({
       success: true,
@@ -121,10 +118,7 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating subadmin:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -133,7 +127,6 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
 // ========================
 router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) => {
   try {
-    // Only superadmin and admin can update subadmins
     if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -145,24 +138,24 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
     const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Sub-admin not found"
-      });
+      return res.status(404).json({ success: false, message: "Sub-admin not found" });
     }
 
-    // Check if email is being changed and already exists
+    // Store old data for logging
+    const oldData = {
+      name: admin.name,
+      email: admin.email,
+      phone: admin.phone,
+      isActive: admin.isActive
+    };
+
     if (email !== admin.email) {
       const existingAdmin = await Admin.findOne({ email });
       if (existingAdmin) {
-        return res.status(400).json({
-          success: false,
-          message: "Email already in use"
-        });
+        return res.status(400).json({ success: false, message: "Email already in use" });
       }
     }
 
-    // Update fields
     admin.name = name || admin.name;
     admin.email = email || admin.email;
     admin.phone = phone || admin.phone;
@@ -171,9 +164,7 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
       admin.password = password;
     }
 
-    // Handle profile image
     if (req.file) {
-      // Delete old image if exists
       if (admin.profileImage) {
         const oldPath = path.join(admin.profileImage);
         if (fs.existsSync(oldPath)) {
@@ -187,8 +178,29 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
 
     await admin.save();
 
-    const adminResponse = admin.toSafeObject();  // ← USE THE toSafeObject METHOD
+    // Prepare after data
+    const afterData = {
+      name: admin.name,
+      email: admin.email,
+      phone: admin.phone,
+      isActive: admin.isActive
+    };
 
+    const adminResponse = admin.toSafeObject();
+
+    // ✅ LOG: Edit Sub-Admin
+    await createAdminLog({
+      req,
+      action: 'EDIT_ADMIN',
+      entityType: 'admin',
+      entityId: req.params.id,
+      entityName: admin.name,
+      details: { 
+        before: oldData, 
+        after: afterData,
+        role: 'subadmin'
+      }
+    });
 
     res.json({
       success: true,
@@ -197,10 +209,7 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
     });
   } catch (error) {
     console.error("Error updating subadmin:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -209,7 +218,6 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
 // ========================
 router.patch("/:id/status", adminAuth, async (req, res) => {
   try {
-    // Only superadmin and admin can toggle status
     if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -221,14 +229,26 @@ router.patch("/:id/status", adminAuth, async (req, res) => {
     const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Sub-admin not found"
-      });
+      return res.status(404).json({ success: false, message: "Sub-admin not found" });
     }
 
+    const oldStatus = admin.isActive;
     admin.isActive = isActive;
     await admin.save();
+
+    // ✅ LOG: Toggle Admin Status
+    await createAdminLog({
+      req,
+      action: 'TOGGLE_ADMIN_STATUS',
+      entityType: 'admin',
+      entityId: req.params.id,
+      entityName: admin.name,
+      details: { 
+        before: oldStatus, 
+        after: isActive,
+        role: 'subadmin'
+      }
+    });
 
     res.json({
       success: true,
@@ -236,10 +256,7 @@ router.patch("/:id/status", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Error toggling subadmin status:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -248,7 +265,6 @@ router.patch("/:id/status", adminAuth, async (req, res) => {
 // ========================
 router.delete("/:id", adminAuth, async (req, res) => {
   try {
-    // Only superadmin and admin can delete subadmins
     if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -259,13 +275,12 @@ router.delete("/:id", adminAuth, async (req, res) => {
     const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Sub-admin not found"
-      });
+      return res.status(404).json({ success: false, message: "Sub-admin not found" });
     }
 
-    // Delete profile image if exists
+    const adminName = admin.name;
+    const adminEmail = admin.email;
+
     if (admin.profileImage) {
       const imagePath = path.join(admin.profileImage);
       if (fs.existsSync(imagePath)) {
@@ -277,16 +292,27 @@ router.delete("/:id", adminAuth, async (req, res) => {
 
     await admin.deleteOne();
 
+    // ✅ LOG: Delete Sub-Admin
+    await createAdminLog({
+      req,
+      action: 'DELETE_ADMIN',
+      entityType: 'admin',
+      entityId: req.params.id,
+      entityName: adminName,
+      details: { 
+        role: 'subadmin',
+        email: adminEmail,
+        deletedBy: req.admin.email
+      }
+    });
+
     res.json({
       success: true,
       message: "Sub-admin deleted successfully"
     });
   } catch (error) {
     console.error("Error deleting subadmin:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -295,7 +321,6 @@ router.delete("/:id", adminAuth, async (req, res) => {
 // ========================
 router.delete("/bulk-delete", adminAuth, async (req, res) => {
   try {
-    // Only superadmin and admin can bulk delete
     if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -306,14 +331,14 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
     const { ids } = req.body;
 
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No sub-admins selected"
-      });
+      return res.status(400).json({ success: false, message: "No sub-admins selected" });
     }
 
-    // Delete profile images
+    // Get admin names for logging
     const admins = await Admin.find({ _id: { $in: ids } });
+    const adminNames = admins.map(a => a.name);
+
+    // Delete profile images
     admins.forEach(admin => {
       if (admin.profileImage) {
         const imagePath = path.join(admin.profileImage);
@@ -327,6 +352,19 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
 
     const result = await Admin.deleteMany({ _id: { $in: ids } });
 
+    // ✅ LOG: Bulk Delete Sub-Admins
+    await createAdminLog({
+      req,
+      action: 'BULK_DELETE_ADMINS',
+      entityType: 'admin',
+      details: { 
+        count: result.deletedCount, 
+        adminIds: ids,
+        adminNames,
+        role: 'subadmin'
+      }
+    });
+
     res.json({
       success: true,
       message: `${result.deletedCount} sub-admin(s) deleted successfully`,
@@ -334,10 +372,7 @@ router.delete("/bulk-delete", adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Error bulk deleting subadmins:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 

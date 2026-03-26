@@ -27,6 +27,8 @@ import supersubadminRoutes from "./routes/admin/supersubadmins.js";
 import notificationRoutes from "./routes/notifications.js"
 import adminLogsRoutes from './routes/admin/logs.js';
 import publicLogsRoutes from './routes/logs.js';
+import adminLogRoutes from './routes/admin/adminLogs.js';
+
 
 
 
@@ -92,10 +94,12 @@ app.use((req, res, next) => {
 
 // Public routes for logging (requires auth)
 app.use('/api/logs', publicLogsRoutes);
+app.use("/api/admin/admin-logs", adminLogRoutes);
 
 
 // Admin routes
 app.use('/api/admin/logs', adminLogsRoutes);
+
 
 
 // Admin routes

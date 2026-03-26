@@ -31,21 +31,21 @@ const adminSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: ["superadmin", "supersubadmin", "subadmin"], // Added "subadmin"
-    default: "admin",
+    default: "subadmin",
   },
-  permissions: [{
-    type: String,
-    enum: [
-      "manage_users",
-      "manage_jobs",
-      "manage_providers",
-      "manage_admins",
-      "view_analytics",
-      "manage_settings",
-      "manage_subadmins",
-      "manage_supersubadmin",
-    ]
-  }],
+  // permissions: [{
+  //   type: String,
+  //   enum: [
+  //     "manage_users",
+  //     "manage_jobs",
+  //     "manage_providers",
+  //     "manage_admins",
+  //     "view_analytics",
+  //     "manage_settings",
+  //     "manage_subadmins",
+  //     "manage_supersubadmin",
+  //   ]
+  // }],
   isActive: {
     type: Boolean,
     default: true,
