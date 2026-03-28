@@ -247,10 +247,37 @@ export const googleAuthCallback = async (req, res) => {
       }));
 
       const fullRedirectUrl = `${callbackUrl}?data=${encodedData}`;
-      console.log("📱 Redirecting to mobile app:", fullRedirectUrl);
-      
-      // Use setTimeout to ensure redirect happens after all current operations
-      return res.redirect(fullRedirectUrl);
+console.log("📱 Sending HTML redirect for mobile app:", fullRedirectUrl);
+
+return res.send(`
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <title>Authentication Successful</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+    </head>
+    <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f8f9fa;">
+      <div style="max-width: 400px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px;">
+        <div style="font-size: 50px; margin-bottom: 20px;">✅</div>
+        <h2 style="color: #0099cc;">Authentication Successful!</h2>
+        <p style="color: #666;">Redirecting you back to the app...</p>
+        <a id="redirectLink" href="${fullRedirectUrl}" 
+           style="display:inline-block; margin-top:20px; padding: 12px 24px; 
+                  background:#0099cc; color:white; border-radius:8px; 
+                  text-decoration:none; font-weight:bold;">
+          Tap here if not redirected
+        </a>
+      </div>
+      <script>
+        const deepLink = "${fullRedirectUrl}";
+        window.location.replace(deepLink);
+        setTimeout(function() {
+          window.location.href = deepLink;
+        }, 500);
+      </script>
+    </body>
+  </html>
+`);
 
       
     } else {
@@ -282,7 +309,23 @@ export const googleAuthCallback = async (req, res) => {
     }
     
     
-      return res.redirect(fullErrorUrl);
+      // ✅ Replace with
+return res.send(`
+  <!DOCTYPE html>
+  <html>
+    <head><title>Authentication Failed</title></head>
+    <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+      <h2 style="color: #dc2626;">Authentication Failed</h2>
+      <p>Redirecting back to app...</p>
+      <script>
+        window.location.replace("${fullErrorUrl}");
+        setTimeout(function() {
+          window.location.href = "${fullErrorUrl}";
+        }, 500);
+      </script>
+    </body>
+  </html>
+`);
     
   }
 };

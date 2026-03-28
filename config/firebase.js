@@ -1,28 +1,62 @@
+// config/firebase.js
 import admin from 'firebase-admin';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import path from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let messaging = null;
+let isInitialized = false;
 
-// Load service account key
-const serviceAccount = JSON.parse(
-  readFileSync(path.join(__dirname, 'service-account-key.json'), 'utf8')
-);
+// Initialize Firebase Admin SDK using environment variables
+try {
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+  if (projectId && privateKey && clientEmail) {
+    // Format private key (replace escaped newlines with actual newlines)
+    const formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
+    
+    const serviceAccount = {
+      projectId: projectId,
+      privateKey: formattedPrivateKey,
+      clientEmail: clientEmail,
+    };
+    
+    // Initialize Firebase Admin SDK
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+      console.log('✅ Firebase Admin SDK initialized from environment variables');
+    }
+    
+    messaging = admin.messaging();
+    isInitialized = true;
+  } else {
+    console.log('⚠️ Firebase credentials not found in environment variables');
+    console.log('   Required: FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL');
+  }
+} catch (error) {
+  console.error('❌ Error initializing Firebase:', error.message);
+  console.error('   Check your FIREBASE_PRIVATE_KEY format (should contain \\n for newlines)');
 }
 
-// Send notification to single device
+/**
+ * Send notification to a single device (Firebase FCM)
+ * @param {string} deviceToken - Firebase device token
+ * @param {object} notification - Notification object with title, message, type, relatedId
+ * @returns {Promise<object|null>} - Response from FCM or null if failed
+ */
 export const sendPushNotification = async (deviceToken, notification) => {
-  try {
-    if (!deviceToken) return null;
+  if (!messaging) {
+    console.log('⚠️ Push notification skipped: Firebase not configured');
+    return null;
+  }
+  
+  if (!deviceToken) {
+    console.log('⚠️ Push notification skipped: No device token');
+    return null;
+  }
 
+  try {
     const message = {
       token: deviceToken,
       notification: {
@@ -39,26 +73,59 @@ export const sendPushNotification = async (deviceToken, notification) => {
         notification: {
           sound: 'default',
           channelId: 'workisready_notifications',
+          color: '#0099cc',
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          },
         },
       },
     };
 
-    const response = await admin.messaging().send(message);
-    console.log('✅ Push notification sent:', response);
+    const response = await messaging.send(message);
+    console.log(`✅ Push notification sent to ${deviceToken.substring(0, 20)}...`);
     return response;
   } catch (error) {
-    console.error('❌ Error sending push notification:', error);
+    console.error('❌ Error sending push notification:', error.message);
+    
+    // Check if token is invalid (device no longer registered)
+    if (error.code === 'messaging/invalid-registration-token' ||
+        error.code === 'messaging/registration-token-not-registered') {
+      console.log('⚠️ Invalid push token - should be removed from database');
+      return { invalidToken: true, token: deviceToken };
+    }
+    
     return null;
   }
 };
 
-// Send notification to multiple devices
+/**
+ * Send notification to multiple devices (Firebase FCM)
+ * @param {string[]} deviceTokens - Array of Firebase device tokens
+ * @param {object} notification - Notification object with title, message, type, relatedId
+ * @returns {Promise<object|null>} - Response from FCM or null if failed
+ */
 export const sendMulticastPushNotification = async (deviceTokens, notification) => {
-  try {
-    if (!deviceTokens || deviceTokens.length === 0) return null;
+  if (!messaging) {
+    console.log('⚠️ Multicast push skipped: Firebase not configured');
+    return null;
+  }
+  
+  if (!deviceTokens || deviceTokens.length === 0) {
+    console.log('⚠️ Multicast push skipped: No device tokens');
+    return null;
+  }
 
+  try {
+    // FCM limit is 500 tokens per request
+    const tokens = deviceTokens.slice(0, 500);
+    
     const message = {
-      tokens: deviceTokens,
+      tokens: tokens,
       notification: {
         title: notification.title,
         body: notification.message,
@@ -69,23 +136,50 @@ export const sendMulticastPushNotification = async (deviceTokens, notification) 
       },
       android: {
         priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'workisready_notifications',
+        },
       },
     };
 
-    const response = await admin.messaging().sendMulticast(message);
-    console.log(`✅ Push notifications sent to ${response.successCount} devices`);
-    return response;
+    const response = await messaging.sendEachForMulticast(message);
+    console.log(`✅ Push notifications sent to ${response.successCount}/${tokens.length} devices`);
+    
+    // Return failed tokens to remove them from database
+    const failedTokens = [];
+    if (response.failureCount > 0) {
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          failedTokens.push(tokens[idx]);
+        }
+      });
+    }
+    
+    return {
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      failedTokens,
+    };
   } catch (error) {
-    console.error('❌ Error sending multicast push notification:', error);
+    console.error('❌ Error sending multicast push notification:', error.message);
     return null;
   }
 };
 
-// Send notification to Expo tokens (different format)
+/**
+ * Send notification to Expo tokens (Expo Push Notifications)
+ * @param {string[]} expoTokens - Array of Expo push tokens
+ * @param {object} notification - Notification object with title, message, type, relatedId
+ * @returns {Promise<object|null>} - Response from Expo push service
+ */
 export const sendExpoPushNotification = async (expoTokens, notification) => {
-  try {
-    if (!expoTokens || expoTokens.length === 0) return null;
+  if (!expoTokens || expoTokens.length === 0) {
+    console.log('⚠️ Expo push skipped: No Expo tokens');
+    return null;
+  }
 
+  try {
     const messages = expoTokens.map(token => ({
       to: token,
       sound: 'default',
@@ -112,12 +206,30 @@ export const sendExpoPushNotification = async (expoTokens, notification) => {
     });
 
     const data = await response.json();
-    console.log('📨 Expo push response:', data);
+    console.log(`📨 Expo push sent to ${expoTokens.length} devices`);
     return data;
   } catch (error) {
-    console.error('Error sending Expo push notification:', error);
+    console.error('❌ Error sending Expo push notification:', error.message);
     return null;
   }
 };
 
-export default admin;
+/**
+ * Check if Firebase is configured and ready
+ * @returns {boolean}
+ */
+export const isFirebaseConfigured = () => isInitialized;
+
+/**
+ * Get the messaging instance (for advanced use)
+ * @returns {admin.messaging.Messaging|null}
+ */
+export const getMessaging = () => messaging;
+
+export default {
+  sendPushNotification,
+  sendMulticastPushNotification,
+  sendExpoPushNotification,
+  isFirebaseConfigured,
+  getMessaging,
+};
