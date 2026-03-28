@@ -17,7 +17,7 @@ router.post('/contact', auth, async (req, res) => {
   const { targetId, targetType, actionType, metadata } = req.body;
 
   const VALID_TARGET_TYPES = new Set(['worker', 'job']);
-  const VALID_ACTION_TYPES = new Set(['call', 'whatsapp', 'email']);
+  const VALID_ACTION_TYPES = new Set(['call', 'whatsapp', 'email', 'share']);
 
   if (!targetId || !VALID_TARGET_TYPES.has(targetType) || !VALID_ACTION_TYPES.has(actionType)) {
     return res.status(400).json({ success: false, message: 'Invalid or missing fields' });

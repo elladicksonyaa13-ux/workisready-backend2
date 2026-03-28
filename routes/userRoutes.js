@@ -10,6 +10,9 @@ import SavedTask from "../models/savedTask.js";
 import SavedProvider from "../models/SavedProvider.js";
 import ActivityLog from "../models/ActivityLog.js";  // ✅ Import ActivityLog
 import Provider from '../models/Providers.js';
+import AdminLog from '../models/AdminLog.js';
+import UserActivityLog from '../models/UserActivityLog.js';
+
 
 const router = express.Router();
 
@@ -386,7 +389,7 @@ router.get("/profile/pending-status", auth, async (req, res) => {
 });
 
 // ========================
-// ✅ REQUEST ACCOUNT DELETION
+// ✅ REQUEST ACCOUNT DELETION - WITH JOB & WORKER SUSPENSION
 // ========================
 router.post("/request-deletion", auth, async (req, res) => {
   try {
@@ -409,6 +412,40 @@ router.post("/request-deletion", auth, async (req, res) => {
       });
     }
     
+    // Get counts before suspension (for logging)
+    const jobsCount = await Task.countDocuments({ clientId: user._id, isDeleted: { $ne: true } });
+    const workerProfilesCount = await Provider.countDocuments({ userId: user._id, isDeleted: { $ne: true } });
+    
+    // ✅ SUSPEND ALL JOBS POSTED BY THIS USER - FIX suspendedBy
+    const jobsResult = await Task.updateMany(
+      { clientId: user._id, isDeleted: { $ne: true } },
+      { 
+        $set: { 
+          isSuspended: true,
+          suspendedAt: new Date(),
+          suspendedBy: null, // ✅ Use null instead of "system"
+          suspensionReason: `User account deletion requested: ${reason || "User requested account deletion"}`,
+          isDeleted: true,
+          deletedAt: new Date()
+        }
+      }
+    );
+    
+    // ✅ SUSPEND WORKER PROFILE (if user is a worker) - FIX suspendedBy
+    const providersResult = await Provider.updateMany(
+      { userId: user._id, isDeleted: { $ne: true } },
+      { 
+        $set: { 
+          isSuspended: true,
+          suspendedAt: new Date(),
+          suspendedBy: null, // ✅ Use null instead of "system"
+          suspensionReason: `User account deletion requested: ${reason || "User requested account deletion"}`,
+          isDeleted: true,
+          deletedAt: new Date()
+        }
+      }
+    );
+    
     // Mark account for deletion
     user.accountSuspended = true;
     user.deletionRequested = true;
@@ -416,21 +453,59 @@ router.post("/request-deletion", auth, async (req, res) => {
     user.deletionRequestedAt = new Date();
     user.scheduledDeletionDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     
-    await user.save();
+    // Also mark as suspended
+    user.isSuspended = true;
+    user.suspendedAt = new Date();
+    user.suspendedBy = null; // ✅ Use null instead of "system"
+    user.suspensionReason = `Account deletion requested: ${reason || "User requested account deletion"}`;
     
-    // You could also send an email to the user and admin here
+    // Invalidate all sessions
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    
+    await user.save();
+
+    
+    
+  // ✅ LOG to UserActivityLog
+try {
+  await UserActivityLog.create({
+    userId: user._id,
+    userName: user.name || user.email,
+    userEmail: user.email,
+    userType: user.userType,
+    action: 'DELETE_ACCOUNT',
+    details: {
+      reason: reason || "User requested account deletion",
+      jobsSuspended: jobsResult.modifiedCount,
+      workerProfilesSuspended: providersResult.modifiedCount,
+      scheduledDeletionDate: user.scheduledDeletionDate,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent']
+    },
+    timestamp: new Date()
+  });
+  
+  console.log(`✅ User deletion logged for ${user.email}`);
+} catch (logError) {
+  console.error('Error logging user deletion:', logError);
+}
     
     res.json({
       success: true,
-      message: "Deletion request submitted successfully. Your account will be permanently deleted after 30 days.",
-      scheduledDeletion: user.scheduledDeletionDate
+      message: `Deletion request submitted successfully. ${jobsResult.modifiedCount} job(s) and ${providersResult.modifiedCount} worker profile(s) have been suspended. Your account will be permanently deleted after 30 days.`,
+      scheduledDeletion: user.scheduledDeletionDate,
+      stats: {
+        jobsSuspended: jobsResult.modifiedCount,
+        workerProfilesSuspended: providersResult.modifiedCount
+      }
     });
     
   } catch (error) {
     console.error("❌ Error requesting deletion:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Server error processing deletion request" 
+      message: "Server error processing deletion request",
+      error: error.message
     });
   }
 });
@@ -439,20 +514,12 @@ router.post("/request-deletion", auth, async (req, res) => {
 router.post('/push-token', auth, async (req, res) => {
   try {
     const { token, platform } = req.body;
-    
     await User.findByIdAndUpdate(
       req.user._id,
-      {
-        pushToken: token,
-        pushTokenPlatform: platform,
-        pushTokenUpdatedAt: new Date()
-      },
-      { new: true }
+      { pushToken: token, pushTokenPlatform: platform, pushTokenUpdatedAt: new Date() }
     );
-    
-    res.json({ success: true, message: 'Push token saved' });
+    res.json({ success: true });
   } catch (error) {
-    console.error('Error saving push token:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

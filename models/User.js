@@ -134,6 +134,10 @@ whatsapp: {
       type: Date,
       default: null,
     },
+    accountSuspended: {  // ✅ Add this line
+  type: Boolean,
+  default: false,
+},
     // Suspension Fields
   isSuspended: {
     type: Boolean,
@@ -174,6 +178,12 @@ whatsapp: {
     type: Number,
     default: 0,
   },
+  
+  deviceTokens: [{
+    token: String,
+    platform: String, // 'android' or 'ios'
+    lastUsed: Date,
+  }],
 
     // Add these fields to your userSchema
 deletionRequested: {

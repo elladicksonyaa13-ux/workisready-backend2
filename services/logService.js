@@ -41,6 +41,8 @@ class LogService {
         emailAddress: metadata.emailAddress,
         whatsappNumber: metadata.whatsappNumber,
         contactMethod: metadata.contactMethod,
+
+        shareMethod: metadata.shareMethod, // ✅ Add share method
         
         // Request info
         ipAddress,
@@ -71,153 +73,238 @@ class LogService {
   // ========================
   // GET LOGS WITH FILTERS
   // ========================
-  async getLogs({
-    targetType,
-    actionType,
-    userId,
-    targetId,
-    startDate,
-    endDate,
-    search,
-    page = 1,
-    limit = 20,
-    sortBy = 'timestamp',
-    sortOrder = 'desc'
-  }) {
-    try {
-      const query = {};
-      
-      // Filter by target type (worker or job)
-      if (targetType && targetType !== 'all') {
-        query.targetType = targetType;
+
+// In logService.js - getLogs function
+
+async getLogs({
+  targetType,
+  actionType,
+  userId,
+  targetId,
+  startDate,
+  endDate,
+  search,
+  page = 1,
+  limit = 20,
+  sortBy = 'timestamp',
+  sortOrder = 'desc'
+}) {
+  try {
+    const query = {};
+    
+    // Filter by target type (worker or job)
+    if (targetType && targetType !== 'all') {
+      query.targetType = targetType;
+    }
+    
+    // Filter by action type
+    if (actionType && actionType !== 'all') {
+      query.actionType = actionType;
+    }
+    
+    // Filter by specific user
+    if (userId) {
+      query.userId = userId;
+    }
+    
+    // Filter by specific target
+    if (targetId) {
+      query.targetId = targetId;
+    }
+    
+    // Date range filter
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) {
+        query.timestamp.$gte = new Date(startDate);
       }
-      
-      // Filter by action type
-      if (actionType && actionType !== 'all') {
-        query.actionType = actionType;
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        query.timestamp.$lte = endDateTime;
       }
+    }
+    
+    // ✅ ENHANCED: Search by user name, email, OR target name
+    if (search && search.trim()) {
+      const searchTerm = search.trim();
+      const searchRegex = { $regex: searchTerm, $options: 'i' };
       
-      // Filter by specific user
-      if (userId) {
-        query.userId = userId;
-      }
+      // 1. Find users matching the search
+      const users = await User.find({
+        $or: [
+          { name: searchRegex },
+          { email: searchRegex }
+        ]
+      }).select('_id');
       
-      // Filter by specific target
-      if (targetId) {
-        query.targetId = targetId;
-      }
+      const userIds = users.map(u => u._id);
       
-      // Date range filter
-      if (startDate || endDate) {
-        query.timestamp = {};
-        if (startDate) {
-          query.timestamp.$gte = new Date(startDate);
-        }
-        if (endDate) {
-          // Set to end of day
-          const endDateTime = new Date(endDate);
-          endDateTime.setHours(23, 59, 59, 999);
-          query.timestamp.$lte = endDateTime;
-        }
-      }
+      // 2. Find targets (jobs/workers) matching the search
+      let targetIds = [];
       
-      // Search by user name or email
-      if (search && search.trim()) {
-        // First find users matching the search
-        const users = await User.find({
+      if (targetType === 'worker' || !targetType || targetType === 'all') {
+        // Search in workers
+        const workers = await Provider.find({
           $or: [
-            { name: { $regex: search, $options: 'i' } },
-            { email: { $regex: search, $options: 'i' } }
+            { businessName: searchRegex },
+            { firstName: searchRegex },
+            { surname: searchRegex },
+            { fullName: searchRegex }
           ]
         }).select('_id');
-        
-        const userIds = users.map(u => u._id);
-        
-        if (userIds.length > 0) {
-          query.userId = { $in: userIds };
-        } else {
-          // If no users found, return empty result
-          return { logs: [], total: 0, stats: this.calculateStats([]) };
-        }
+        targetIds.push(...workers.map(w => w._id));
       }
       
-      // Calculate pagination
-      const skip = (page - 1) * limit;
+      if (targetType === 'job' || !targetType || targetType === 'all') {
+        // Search in jobs
+        const jobs = await Task.find({
+          title: searchRegex
+        }).select('_id');
+        targetIds.push(...jobs.map(j => j._id));
+      }
       
-      // Sort options
-      const sort = {};
-      sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+      // Remove duplicates
+      targetIds = [...new Set(targetIds.map(id => id.toString()))];
       
-      // Execute query with population
-      const [logs, total] = await Promise.all([
-        ActivityLog.find(query)
-          .populate('userId', 'name email userType')
-          .populate({
-            path: 'targetId',
-            select: 'title name firstName surname businessName',
-            // populate: {
-            //   path: 'userId',
-            //   select: 'name email'
-            // }
-          })
-          .sort(sort)
-          .skip(skip)
-          .limit(limit)
-          .lean(),
-        ActivityLog.countDocuments(query)
-      ]);
+      // Build the search query with $or
+      const searchConditions = [];
       
-      // Format the logs for frontend
-      const formattedLogs = logs.map(log => ({
-        ...log,
-        targetId: this.formatTarget(log.targetId, log.targetType, log.targetModel),
-        timestamp: log.timestamp
-      }));
+      if (userIds.length > 0) {
+        searchConditions.push({ userId: { $in: userIds } });
+      }
       
-      // Calculate stats
-      const stats = await this.calculateStats(query);
+      if (targetIds.length > 0) {
+        searchConditions.push({ targetId: { $in: targetIds } });
+      }
       
-      return {
-        success: true,
-        logs: formattedLogs,
-        total,
-        stats,
-        pagination: {
-          page,
-          limit,
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      };
-    } catch (error) {
-      console.error('Error fetching logs:', error);
-      return { success: false, logs: [], total: 0, stats: { totalCalls: 0, totalWhatsApp: 0, totalEmails: 0, uniqueUsers: 0 } };
+      // Also search in metadata (phone numbers, emails)
+      searchConditions.push({
+        $or: [
+          { 'metadata.phoneNumber': searchRegex },
+          { 'metadata.emailAddress': searchRegex },
+          { 'metadata.whatsappNumber': searchRegex },
+          { 'metadata.providerName': searchRegex },
+          { 'metadata.jobTitle': searchRegex }
+        ]
+      });
+      
+      if (searchConditions.length > 0) {
+        query.$or = searchConditions;
+      } else {
+        // If no matches found in any condition, return empty
+        return { 
+          success: true,
+          logs: [], 
+          total: 0, 
+          stats: { totalCalls: 0, totalWhatsApp: 0, totalEmails: 0, totalShares: 0, uniqueUsers: 0 },
+          pagination: { page, limit, total: 0, pages: 0 }
+        };
+      }
     }
+    
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
+    // Sort options
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    
+    // Create a clean filter for stats
+    const statsFilter = query && typeof query === 'object' ? query : {};
+    
+    // Execute query with population
+    const [logs, total, stats] = await Promise.all([
+      ActivityLog.find(query)
+        .populate('userId', 'name email userType')
+        .populate({
+          path: 'targetId',
+          select: 'title name firstName surname businessName fullName',
+        })
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ActivityLog.countDocuments(query),
+      this.calculateStats(statsFilter)
+    ]);
+    
+    // Format the logs for frontend
+    const formattedLogs = logs.map(log => ({
+      ...log,
+      targetId: this.formatTarget(log.targetId, log.targetType, log.targetModel),
+      timestamp: log.timestamp
+    }));
+    
+    return {
+      success: true,
+      logs: formattedLogs,
+      total,
+      stats,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
+  } catch (error) {
+    console.error('Error fetching logs:', error);
+    return { 
+      success: false, 
+      logs: [], 
+      total: 0, 
+      stats: { totalCalls: 0, totalWhatsApp: 0, totalEmails: 0, totalShares: 0, uniqueUsers: 0 },
+      pagination: { page, limit, total: 0, pages: 0 }
+    };
   }
+}
   
   // ========================
   // CALCULATE STATS
   // ========================
-  async calculateStats(query = {}) {
-    try {
-      const [totalCalls, totalWhatsApp, totalEmails, uniqueUsers] = await Promise.all([
-        ActivityLog.countDocuments({ ...query, actionType: 'call' }),
-        ActivityLog.countDocuments({ ...query, actionType: 'whatsapp' }),
-        ActivityLog.countDocuments({ ...query, actionType: 'email' }),
-        ActivityLog.distinct('userId', query).then(users => users.length)
-      ]);
-      
-      return {
-        totalCalls,
-        totalWhatsApp,
-        totalEmails,
-        uniqueUsers
-      };
-    } catch (error) {
-      console.error('Error calculating stats:', error);
-      return { totalCalls: 0, totalWhatsApp: 0, totalEmails: 0, uniqueUsers: 0 };
+// In logService.js - calculateStats function
+
+async calculateStats(query = {}) {
+  try {
+    // ✅ FIX: Ensure query is always an object
+    let filter = {};
+    
+    if (query && typeof query === 'object' && !Array.isArray(query)) {
+      filter = query;
     }
+    
+    // If filter is empty, just count all
+    const hasFilters = Object.keys(filter).length > 0;
+    
+    // Get counts for each action type
+    const [totalCalls, totalWhatsApp, totalEmails, totalShares, uniqueUsers] = await Promise.all([
+      ActivityLog.countDocuments(hasFilters ? { ...filter, actionType: 'call' } : { actionType: 'call' }),
+      ActivityLog.countDocuments(hasFilters ? { ...filter, actionType: 'whatsapp' } : { actionType: 'whatsapp' }),
+      ActivityLog.countDocuments(hasFilters ? { ...filter, actionType: 'email' } : { actionType: 'email' }),
+      ActivityLog.countDocuments(hasFilters ? { ...filter, actionType: 'share' } : { actionType: 'share' }),
+      ActivityLog.distinct('userId', hasFilters ? filter : {}).then(users => users.length)
+    ]);
+    
+    return {
+      totalCalls,
+      totalWhatsApp,
+      totalEmails,
+      uniqueUsers,
+      totalShares, // ✅ Add to return object
+    };
+  } catch (error) {
+    console.error('Error calculating stats:', error);
+    // Return default stats instead of throwing
+    return {
+      totalCalls: 0,
+      totalWhatsApp: 0,
+      totalEmails: 0,
+      uniqueUsers: 0,
+      totalShares: 0,
+    };
   }
+}
   
   // ========================
   // FORMAT TARGET OBJECT
@@ -246,90 +333,128 @@ class LogService {
   // ========================
   // EXPORT LOGS TO CSV
   // ========================
-  async exportLogs({
-    targetType,
-    actionType,
-    startDate,
-    endDate,
-    search
-  }) {
-    try {
-      const query = {};
-      
-      if (targetType && targetType !== 'all') {
-        query.targetType = targetType;
+async exportLogs({
+  targetType,
+  actionType,
+  startDate,
+  endDate,
+  search
+}) {
+  try {
+    const query = {};
+    
+    if (targetType && targetType !== 'all') {
+      query.targetType = targetType;
+    }
+    
+    if (actionType && actionType !== 'all') {
+      query.actionType = actionType;
+    }
+    
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) {
+        query.timestamp.$gte = new Date(startDate);
       }
-      
-      if (actionType && actionType !== 'all') {
-        query.actionType = actionType;
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        query.timestamp.$lte = endDateTime;
       }
+    }
+    
+    // ✅ ENHANCED: Search for export as well
+    if (search && search.trim()) {
+      const searchTerm = search.trim();
+      const searchRegex = { $regex: searchTerm, $options: 'i' };
       
-      if (startDate || endDate) {
-        query.timestamp = {};
-        if (startDate) {
-          query.timestamp.$gte = new Date(startDate);
-        }
-        if (endDate) {
-          const endDateTime = new Date(endDate);
-          endDateTime.setHours(23, 59, 59, 999);
-          query.timestamp.$lte = endDateTime;
-        }
-      }
+      // Find users
+      const users = await User.find({
+        $or: [
+          { name: searchRegex },
+          { email: searchRegex }
+        ]
+      }).select('_id');
+      const userIds = users.map(u => u._id);
       
-      if (search && search.trim()) {
-        const users = await User.find({
+      // Find targets
+      let targetIds = [];
+      if (targetType === 'worker' || !targetType || targetType === 'all') {
+        const workers = await Provider.find({
           $or: [
-            { name: { $regex: search, $options: 'i' } },
-            { email: { $regex: search, $options: 'i' } }
+            { businessName: searchRegex },
+            { firstName: searchRegex },
+            { surname: searchRegex },
+            { fullName: searchRegex }
           ]
         }).select('_id');
-        
-        const userIds = users.map(u => u._id);
-        if (userIds.length > 0) {
-          query.userId = { $in: userIds };
-        } else {
-          return [];
-        }
+        targetIds.push(...workers.map(w => w._id));
       }
       
-      const logs = await ActivityLog.find(query)
-        .populate('userId', 'name email userType')
-        .populate({
-          path: 'targetId',
-          select: 'title name firstName surname businessName',
-        //   populate: {
-        //     path: 'userId',
-        //     select: 'name email'
-        //   }
-        })
-        .sort({ timestamp: -1 })
-        .lean();
+      if (targetType === 'job' || !targetType || targetType === 'all') {
+        const jobs = await Task.find({
+          title: searchRegex
+        }).select('_id');
+        targetIds.push(...jobs.map(j => j._id));
+      }
       
-      return logs.map(log => ({
-        'Date': new Date(log.timestamp).toLocaleString(),
-        'User Name': log.userId?.name || 'Unknown',
-        'User Email': log.userId?.email || 'Unknown',
-        'User Type': log.userId?.userType || 'client',
-        'Action': this.getActionLabel(log.actionType),
-        'Target Type': log.targetType === 'worker' ? 'Worker' : 'Job',
-        'Target Name': log.targetType === 'worker' 
-          ? (log.targetId?.businessName || `${log.targetId?.firstName} ${log.targetId?.surname}`)
-          : log.targetId?.title,
-        'Contact Info': log.metadata?.phoneNumber || log.metadata?.emailAddress || log.metadata?.whatsappNumber || '',
-        'IP Address': log.metadata?.ipAddress || '',
-        'User Agent': log.metadata?.userAgent || ''
-      }));
-    } catch (error) {
-      console.error('Error exporting logs:', error);
-      return [];
+      targetIds = [...new Set(targetIds.map(id => id.toString()))];
+      
+      const searchConditions = [];
+      if (userIds.length > 0) searchConditions.push({ userId: { $in: userIds } });
+      if (targetIds.length > 0) searchConditions.push({ targetId: { $in: targetIds } });
+      searchConditions.push({
+        $or: [
+          { 'metadata.phoneNumber': searchRegex },
+          { 'metadata.emailAddress': searchRegex },
+          { 'metadata.whatsappNumber': searchRegex },
+          { 'metadata.providerName': searchRegex },
+          { 'metadata.jobTitle': searchRegex }
+        ]
+      });
+      
+      if (searchConditions.length > 0) {
+        query.$or = searchConditions;
+      } else {
+        return [];
+      }
     }
+    
+    const logs = await ActivityLog.find(query)
+      .populate('userId', 'name email userType')
+      .populate({
+        path: 'targetId',
+        select: 'title name firstName surname businessName',
+      })
+      .sort({ timestamp: -1 })
+      .lean();
+    
+    return logs.map(log => ({
+      'Date': new Date(log.timestamp).toLocaleString(),
+      'User Name': log.userId?.name || 'Unknown',
+      'User Email': log.userId?.email || 'Unknown',
+      'User Type': log.userId?.userType || 'client',
+      'Action': this.getActionLabel(log.actionType),
+      'Target Type': log.targetType === 'worker' ? 'Worker' : 'Job',
+      'Target Name': log.targetType === 'worker' 
+        ? (log.targetId?.businessName || `${log.targetId?.firstName} ${log.targetId?.surname}`)
+        : log.targetId?.title,
+      'Contact Info': log.metadata?.phoneNumber || log.metadata?.emailAddress || log.metadata?.whatsappNumber || '',
+      'IP Address': log.metadata?.ipAddress || '',
+      'User Agent': log.metadata?.userAgent || ''
+    }));
+  } catch (error) {
+    console.error('Error exporting logs:', error);
+    return [];
   }
+}
   
   getActionLabel(actionType) {
     switch (actionType) {
       case 'call': return 'Phone Call';
       case 'whatsapp': return 'WhatsApp Message';
       case 'email': return 'Email';
+      case 'share': return 'Share';
       default: return actionType;
     }
   }
@@ -359,10 +484,11 @@ class LogService {
     try {
       const targetModel = targetType === 'worker' ? 'Provider' : 'Task';
       
-      const [totalCalls, totalWhatsApp, totalEmails, uniqueUsers] = await Promise.all([
+      const [totalCalls, totalWhatsApp, totalEmails, totalShares, uniqueUsers] = await Promise.all([
         ActivityLog.countDocuments({ targetId, targetModel, actionType: 'call' }),
         ActivityLog.countDocuments({ targetId, targetModel, actionType: 'whatsapp' }),
         ActivityLog.countDocuments({ targetId, targetModel, actionType: 'email' }),
+        ActivityLog.countDocuments({ targetId, targetModel, actionType: 'share' }),
         ActivityLog.distinct('userId', { targetId, targetModel }).then(users => users.length)
       ]);
       
@@ -371,11 +497,12 @@ class LogService {
         totalWhatsApp,
         totalEmails,
         uniqueUsers,
-        totalInteractions: totalCalls + totalWhatsApp + totalEmails
+        totalShares,
+        totalInteractions: totalCalls + totalWhatsApp + totalEmails + totalShares
       };
     } catch (error) {
       console.error('Error fetching target stats:', error);
-      return { totalCalls: 0, totalWhatsApp: 0, totalEmails: 0, uniqueUsers: 0, totalInteractions: 0 };
+      return { totalCalls: 0, totalWhatsApp: 0, totalEmails: 0, totalShares: 0, uniqueUsers: 0, totalInteractions: 0 };
     }
   }
 }

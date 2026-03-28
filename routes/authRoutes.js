@@ -45,13 +45,15 @@ router.get('/google/callback', async (req, res) => {
 
     let source = 'mobile';
     let codeVerifier = null;
+    let redirectBase = 'com.astro13.WorkisReady://auth/callback';
     
     if (state) {
       try {
         const stateData = JSON.parse(decodeURIComponent(state));
         source = stateData.source || 'mobile';
         codeVerifier = stateData.codeVerifier || null;
-        console.log("Parsed state data:", { source, hasCodeVerifier: !!codeVerifier });
+        redirectBase = stateData.redirectBase || redirectBase;
+        console.log("Parsed state data:", { source, redirectBase, hasCodeVerifier: !!codeVerifier });
       } catch (e) {
         console.log("State is not JSON:", state);
         if (state === 'web' || state === 'mobile') {
@@ -61,12 +63,14 @@ router.get('/google/callback', async (req, res) => {
     }
 
     console.log("Final source:", source);
+    console.log("Final redirectBase:", redirectBase);
 
     req.body = {
       code,
       redirectUri: `${process.env.API_URL}/api/auth/google/callback`,
       source,
       codeVerifier,
+      redirectBase,  // ← pass it through to googleAuthCallback
     };
 
     console.log("Calling googleAuthCallback...");
@@ -75,22 +79,22 @@ router.get('/google/callback', async (req, res) => {
     
   } catch (err) {
     console.error('❌ GET /google/callback error:', err);
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-        <head><title>Error</title></head>
-        <body>
-          <script>
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'error',
-              message: 'OAuth callback failed'
-            }));
-            setTimeout(() => window.close(), 100);
-          </script>
-          <p>Authentication failed. You can close this window.</p>
-        </body>
-      </html>
-    `);
+
+    // Extract redirectBase from state if possible for the error redirect
+    let redirectBase = 'com.astro13.WorkisReady://auth/callback';
+    try {
+      if (req.query.state) {
+        const stateData = JSON.parse(decodeURIComponent(req.query.state));
+        redirectBase = stateData.redirectBase || redirectBase;
+      }
+    } catch (_) {}
+
+    const encodedError = encodeURIComponent(JSON.stringify({
+      type: 'error',
+      message: 'OAuth callback failed'
+    }));
+
+    return res.redirect(`${redirectBase}?data=${encodedError}`);
   }
 });
 
