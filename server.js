@@ -5,6 +5,8 @@ import mongoose from "mongoose";
 import path from "path";
 import { fileURLToPath } from "url";
 import { BASE_URL } from "./config/env.js";
+import http from "http"; // ✅ Add this import
+
 
 // Import routes
 import authRoutes from "./routes/authRoutes.js";
@@ -28,6 +30,10 @@ import notificationRoutes from "./routes/notifications.js"
 import adminLogsRoutes from './routes/admin/logs.js';
 import publicLogsRoutes from './routes/logs.js';
 import adminLogRoutes from './routes/admin/adminLogs.js';
+import { initializeSocket, sendRealTimeNotification } from './socket.js';
+import notificationService from './services/notificationService.js';
+import userActivityLogsRoutes from './routes/admin/userActivityLogs.js';
+
 
 
 
@@ -100,7 +106,7 @@ app.use("/api/admin/admin-logs", adminLogRoutes);
 // Admin routes
 app.use('/api/admin/logs', adminLogsRoutes);
 
-
+app.use('/api/admin/user-activity-logs', userActivityLogsRoutes);
 
 // Admin routes
 app.use("/api/admin", AdminRoutes);
@@ -263,6 +269,12 @@ mongoose.connect(MONGODB_URI)
     console.error("❌ MongoDB connection error:", err);
   });
 
+  // ✅ Initialize Socket.IO with the app
+    const server = initializeSocket(app);
+    
+    // Make io available globally (optional)
+    // global.io = io;
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
@@ -270,6 +282,7 @@ app.listen(PORT, () => {
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📡 API URL: http://localhost:${PORT}`);
   console.log(`📁 Uploads URL: http://localhost:${PORT}/uploads/`);
+  console.log(`🔌 WebSocket server ready for real-time notifications`);
   console.log(`🔍 Debug routes: http://localhost:${PORT}/api/debug/routes`);
   console.log(`🔧 Test images: http://localhost:${PORT}/api/test-images`);
 });

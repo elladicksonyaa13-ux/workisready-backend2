@@ -26,7 +26,7 @@ export const googleAuth = async (req, res) => {
     });
 
     const payload = ticket.getPayload();
-    const { email, name, picture, sub:googleId } = payload;
+    const { email, name, picture, sub: googleId } = payload;
 
     if (!email) {
       return res.status(400).json({ message: "Google account has no email" });
@@ -34,15 +34,13 @@ export const googleAuth = async (req, res) => {
 
     // ✅ Check if user exists
     let user = await User.findOne({ 
-      $or: [{email }, { googleId }] });
-
-      //generate random password for google users.
+      $or: [{ email }, { googleId }] 
+    });
 
     // ✅ Auto-register if not found
     if (!user) {
       const randomPassword = Math.random().toString(36).slice(-8) + 
                              Math.random().toString(36).slice(-8);
-
 
       user = await User.create({
         name,
@@ -53,18 +51,16 @@ export const googleAuth = async (req, res) => {
         password: randomPassword,
       });
 
-    console.log("New Google user created and auto-verified:", email);
-    
+      console.log("New Google user created and auto-verified:", email);
     } else {
-      //Update existing user
+      // Update existing user
       if (!user.googleId) {
         user.googleId = googleId;
       }
       if (!user.profileImage && picture) {
         user.profileImage = picture;
       }
-
-      if (!user.isVerified){
+      if (!user.isVerified) {
         user.isVerified = true;
         console.log("Auto-verified existing Google user:", email);
       }
@@ -77,12 +73,18 @@ export const googleAuth = async (req, res) => {
     // ✅ Generate JWT (same as your normal login)
     const jwtToken = jwt.sign(
       { 
-    id: user._id,
-    tokenVersion: user.tokenVersion || 0  // ← ADD THIS
-  },
+        id: user._id,
+        tokenVersion: user.tokenVersion || 0
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    // Check if we're already in the middle of sending a response
+    if (res.headersSent) {
+      console.log("⚠️ Headers already sent, cannot send response");
+      return;
+    }
 
     res.status(200).json({
       success: true,
@@ -104,50 +106,43 @@ export const googleAuth = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Google Auth Error:", error);
-    res.status(500).json({
-      message: "Google authentication failed",
-      error: error.message,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        message: "Google authentication failed",
+        error: error.message,
+      });
+    }
   }
 };
 
-// ✅ NEW FUNCTION: Handle OAuth code exchange (for mobile/web OAuth flow)
-// controllers/googleAuthController.js
-
-
-
+// ✅ FIXED: Handle OAuth code exchange with better redirect handling
 export const googleAuthCallback = async (req, res) => {
-  // 🔴🔴🔴 CRITICAL DEBUG - REMOVE AFTER TESTING 🔴🔴🔴
   console.log("🔥🔥🔥 GOOGLE CALLBACK HIT 🔥🔥🔥");
   console.log("req.method:", req.method);
   console.log("req.body:", JSON.stringify(req.body, null, 2));
   console.log("req.query:", JSON.stringify(req.query, null, 2));
-  console.log("source value:", req.body?.source);
-  // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
 
+  // ✅ Read redirectBase from BOTH body and query as fallback
+  const redirectBase = 
+    req.body?.redirectBase || 
+    req.query?.redirectBase || 
+    'com.astro13.WorkisReady://auth/callback';  // ← hardcoded fallback
 
+  console.log("📦 redirectBase resolved to:", redirectBase);
 
   try {
     const { code, redirectUri, codeVerifier, source } = req.body;
 
+
     if (!code) {
-      // Return HTML that closes the browser
-      return res.send(`
-        <!DOCTYPE html>
-        <html>
-          <head><title>Authentication Error</title></head>
-          <body>
-            <script>
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'error',
-                message: 'Authorization code is required'
-              }));
-              setTimeout(() => window.close(), 100);
-            </script>
-            <p>Error. You can close this window.</p>
-          </body>
-        </html>
-      `);
+      const callbackUrl = redirectBase || 'com.astro13.WorkisReady://auth/callback';
+      const encodedError = encodeURIComponent(JSON.stringify({
+        type: 'error',
+        message: 'Authorization code is required'
+      }));
+      
+      console.log("❌ No code provided, redirecting to:", `${callbackUrl}?data=${encodedError}`);
+      return res.redirect(`${callbackUrl}?data=${encodedError}`);
     }
 
     console.log("🔑 Processing Google OAuth callback");
@@ -183,20 +178,40 @@ export const googleAuthCallback = async (req, res) => {
         isVerified: true,
         password: randomPassword,
       });
+      console.log("✅ Created new Google user:", email);
     } else {
-      if (!user.googleId) user.googleId = googleId;
-      if (!user.profileImage && picture) user.profileImage = picture;
-      if (!user.isVerified) user.isVerified = true;
-      user.authProvider = "google";
-      await user.save();
+      let needsUpdate = false;
+      if (!user.googleId) {
+        user.googleId = googleId;
+        needsUpdate = true;
+      }
+      if (!user.profileImage && picture) {
+        user.profileImage = picture;
+        needsUpdate = true;
+      }
+      if (!user.isVerified) {
+        user.isVerified = true;
+        needsUpdate = true;
+      }
+      if (user.authProvider !== "google") {
+        user.authProvider = "google";
+        needsUpdate = true;
+      }
+      
+      if (needsUpdate) {
+        await user.save();
+        console.log("✅ Updated existing Google user:", email);
+      } else {
+        console.log("✅ Found existing Google user:", email);
+      }
     }
 
     // Generate JWT
     const jwtToken = jwt.sign(
-      { 
-    id: user._id,
-    tokenVersion: user.tokenVersion || 0  // ← ADD THIS
-  },
+      {
+        id: user._id,
+        tokenVersion: user.tokenVersion || 0
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -214,56 +229,61 @@ export const googleAuthCallback = async (req, res) => {
     };
 
     console.log("✅ Google OAuth successful for:", email);
-    console.log("📱 Source received:", source);
+    console.log("📱 Source:", source, "| redirectBase:", redirectBase);
 
-    // ✅ CHECK SOURCE BEFORE RETURNING
-    if (source === 'mobile') {
-      console.log("📱 Returning HTML for mobile app");
-      return res.send(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <title>Authentication Successful</title>
-          </head>
-          <body>
-            <script>
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'success',
-                token: '${jwtToken}',
-                user: ${JSON.stringify(userData)}
-              }));
-              setTimeout(() => window.close(), 500);
-            </script>
-            <p>Authentication successful! You can close this window.</p>
-          </body>
-        </html>
-      `);
-    } else {
-      console.log("🌐 Returning redirect for web");
-      return res.redirect(`${process.env.CLIENT_URL}?token=${jwtToken}`);
+    // IMPORTANT: Check if headers are already sent before redirecting
+    if (res.headersSent) {
+      console.log("⚠️ Headers already sent, cannot redirect");
+      return;
     }
-    
-  } catch (error) {  // ← This was missing!
+
+    // Perform the redirect
+    if (source === 'mobile') {
+      const callbackUrl = redirectBase || 'com.astro13.WorkisReady://auth/callback';
+      const encodedData = encodeURIComponent(JSON.stringify({
+        type: 'success',
+        token: jwtToken,
+        user: userData
+      }));
+
+      const fullRedirectUrl = `${callbackUrl}?data=${encodedData}`;
+      console.log("📱 Redirecting to mobile app:", fullRedirectUrl);
+      
+      // Use setTimeout to ensure redirect happens after all current operations
+      return res.redirect(fullRedirectUrl);
+
+      
+    } else {
+      const webRedirectUrl = `${process.env.CLIENT_URL}?token=${jwtToken}`;
+      console.log("🌐 Redirecting to web client:", webRedirectUrl);
+      
+      
+        return res.redirect(webRedirectUrl);
+      
+    }
+
+  } catch (error) {
     console.error("❌ Google Auth Callback Error:", error);
     
-    // Return error HTML
-    return res.send(`
-      <!DOCTYPE html>
-      <html>
-        <head><title>Authentication Error</title></head>
-        <body>
-          <script>
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'error',
-              message: '${error.message || 'Authentication failed'}'
-            }));
-            setTimeout(() => window.close(), 100);
-          </script>
-          <p>Authentication failed. You can close this window.</p>
-        </body>
-      </html>
-    `);
+    const { redirectBase } = req.body || {};
+    const callbackUrl = redirectBase || 'com.astro13.WorkisReady://auth/callback';
+    const encodedError = encodeURIComponent(JSON.stringify({
+      type: 'error',
+      message: error.message || 'Authentication failed'
+    }));
+
+    const fullErrorUrl = `${callbackUrl}?data=${encodedError}`;
+    console.log("❌ Redirecting with error to:", fullErrorUrl);
+    
+    // Check if headers are already sent
+    if (res.headersSent) {
+      console.log("⚠️ Headers already sent, cannot redirect error");
+      return;
+    }
+    
+    
+      return res.redirect(fullErrorUrl);
+    
   }
 };
 
@@ -380,5 +400,3 @@ export const verifyGoogleUser = async (req, res) => {
     });
   }
 };
-
-// If you're using default export (check your existing code)

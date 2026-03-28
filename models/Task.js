@@ -109,6 +109,14 @@ const taskSchema = new mongoose.Schema({
     regions: [{ type: String }],
     customScreens: [{ type: String }]
   },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date,
+    default: null
+  },
 
    isSuspended: {
     type: Boolean,

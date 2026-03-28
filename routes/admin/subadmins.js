@@ -43,7 +43,7 @@ const upload = multer({
 // ========================
 router.get("/", adminAuth, async (req, res) => {
   try {
-    if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
+    if (req.admin.role !== 'superadmin' && req.admin.role !== 'supersubadmin') {
       return res.status(403).json({
         success: false,
         message: "Access denied. Insufficient permissions."
@@ -65,7 +65,7 @@ router.get("/", adminAuth, async (req, res) => {
 // ========================
 router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
   try {
-    if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
+    if (req.admin.role !== 'superadmin' && req.admin.role !== 'supersubadmin') {
       return res.status(403).json({
         success: false,
         message: "Access denied. Insufficient permissions."
@@ -127,7 +127,7 @@ router.post("/", adminAuth, upload.single("profileImage"), async (req, res) => {
 // ========================
 router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) => {
   try {
-    if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
+    if (req.admin.role !== 'superadmin' && req.admin.role !== 'supersubadmin') {
       return res.status(403).json({
         success: false,
         message: "Access denied. Insufficient permissions."
@@ -218,7 +218,7 @@ router.put("/:id", adminAuth, upload.single("profileImage"), async (req, res) =>
 // ========================
 router.patch("/:id/status", adminAuth, async (req, res) => {
   try {
-    if (req.admin.role !== 'superadmin' && req.admin.role !== 'admin') {
+    if (req.admin.role !== 'superadmin' && req.admin.role !== 'supersubadmin') {
       return res.status(403).json({
         success: false,
         message: "Access denied. Insufficient permissions."

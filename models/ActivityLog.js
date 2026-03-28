@@ -26,7 +26,7 @@ const activityLogSchema = new mongoose.Schema({
   // Type of action
   actionType: {
     type: String,
-    enum: ['call', 'whatsapp', 'email', 'view'],
+    enum: ['call', 'whatsapp', 'email', 'view', 'share'],
     required: true,
     index: true
   },
@@ -45,6 +45,7 @@ const activityLogSchema = new mongoose.Schema({
     emailAddress: String,
     whatsappNumber: String,
     contactMethod: String,
+    shareMethod: String,
     ipAddress: String,
     userAgent: String,
     deviceInfo: String,

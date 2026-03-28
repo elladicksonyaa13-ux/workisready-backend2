@@ -3,6 +3,9 @@ import express from 'express';
 import NotificationService from '../services/notificationService.js';
 import Notification from '../models/Notification.js';
 import { auth } from '../middleware/auth.js';
+import { sendPushNotification } from '../config/firebase.js';
+import User from '../models/User.js'
+
 
 const router = express.Router();
 
@@ -119,4 +122,84 @@ router.delete('/', auth, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// Register device token
+router.post('/register-token', auth, async (req, res) => {
+  try {
+    const { token, platform } = req.body;
+    
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (!user.deviceTokens) user.deviceTokens = [];
+    
+    // Update existing token or add new
+    const existingToken = user.deviceTokens.find(t => t.token === token);
+    if (existingToken) {
+      existingToken.lastUsed = new Date();
+      existingToken.platform = platform;
+    } else {
+      user.deviceTokens.push({ token, platform, lastUsed: new Date() });
+    }
+    
+    await user.save();
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Register token error:', error);
+    res.status(500).json({ error: 'Failed to register token' });
+  }
+});
+
+// Remove device token
+router.delete('/remove-token', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    await User.findByIdAndUpdate(req.userId, {
+      $pull: { deviceTokens: { token } }
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Remove token error:', error);
+    res.status(500).json({ error: 'Failed to remove token' });
+  }
+});
+
+// Register Expo token
+router.post('/register-expo-token', auth, async (req, res) => {
+  try {
+    const { token, platform } = req.body;
+    
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (!user.deviceTokens) user.deviceTokens = [];
+    
+    const existingToken = user.deviceTokens.find(t => t.token === token);
+    if (existingToken) {
+      existingToken.lastUsed = new Date();
+      existingToken.platform = platform;
+      existingToken.type = 'expo';
+    } else {
+      user.deviceTokens.push({ 
+        token, 
+        platform, 
+        type: 'expo',
+        lastUsed: new Date() 
+      });
+    }
+    
+    await user.save();
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Register token error:', error);
+    res.status(500).json({ error: 'Failed to register token' });
+  }
+});
+
 export default router;
