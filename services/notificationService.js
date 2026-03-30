@@ -6,6 +6,7 @@ import Task from '../models/Task.js';
 import { sendRealTimeNotification } from '../socket.js';
 import { sendMulticastPushNotification } from '../config/firebase.js';
 import admin from '../config/firebase.js';
+import { expandJobCategories } from '../data/categoryMapping.js';
 
 class NotificationService {
   
@@ -43,9 +44,11 @@ class NotificationService {
       });
 
       // Find featured providers that match
-      const featuredProviders = await Provider.find({
-        isSuspended: false,
-        category: { $in: task.category },
+      const expandedCategories = expandJobCategories(task.category);
+
+const featuredProviders = await Provider.find({
+  isSuspended: false,
+  category: { $in: expandedCategories },  // ← use expanded
         region: task.region,
         $or: [
           { isFeatured: true },
@@ -132,9 +135,11 @@ class NotificationService {
       });
 
       // Find providers that are either featured OR promoted
-      const matchingProviders = await Provider.find({
-        isSuspended: false,
-        category: { $in: task.category },
+      const expandedCategories = expandJobCategories(task.category);
+
+const matchingProviders = await Provider.find({
+  isSuspended: false,
+  category: { $in: expandedCategories },  // ← use expanded
         region: task.region,
         $or: [
           { isFeatured: true },
