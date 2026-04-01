@@ -3,12 +3,12 @@ import mongoose from "mongoose";
 const reviewSchema = new mongoose.Schema(
   {
     worker: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "User",
       required: true,
     },
     client: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "User",
       required: true,
     },

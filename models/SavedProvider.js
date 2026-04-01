@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 const SavedProviderSchema = new mongoose.Schema(
   {
-    userId: { type: mongoose.Schema.Types.ObjectId, 
+    userId: { type: String, 
       ref: "User", 
       required: true 
     },

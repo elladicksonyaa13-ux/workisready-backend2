@@ -4,6 +4,11 @@ import crypto from "crypto";
 
 const userSchema = new mongoose.Schema(
   {
+    _id: {
+    type: String, // Change from ObjectId to String
+    required: true,
+    
+  },
     // Basic Information
     name: {
       type: String,
@@ -224,7 +229,10 @@ scheduledDeletionDate: {
       default: "user",
     },
   },
-  { timestamps: true }
+  { timestamps: true },
+  {
+  // Don't auto-generate _id
+  _id: false }
 );
 
 /* 🔐 HASH PASSWORD BEFORE SAVE */

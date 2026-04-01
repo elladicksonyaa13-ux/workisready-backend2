@@ -826,7 +826,7 @@ router.get("/region-category", async (req, res) => {
     
     const [providers, total] = await Promise.all([
       Provider.find(query)
-        .select('fullName firstName surname businessName profilePic bio category skills experience hourlyRate availability averageRating reviews city region totalJobs completedJobs responseRate isVerified')
+        .select('fullName firstName surname businessName profilePic bio category skills experience hourlyRate availability averageRating reviews city region totalJobs completedJobs responseRate isVerified profileViews')
         .sort(sortOption)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -1120,6 +1120,68 @@ router.get("/search", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error during search" });
   }
 });
+
+/* -------------------------------------------------------------------------- */
+/* 👁️ INCREMENT PROFILE VIEWS */
+/* -------------------------------------------------------------------------- */
+// router.patch("/:id/view", async (req, res) => {
+//   try {
+//     const provider = await Provider.findByIdAndUpdate(
+//       req.params.id,
+//       { $inc: { profileViews: 1 } },
+//       { new: true }
+//     );
+
+//     if (!provider) {
+//       return res.status(404).json({ success: false, message: "Provider not found" });
+//     }
+
+//     res.json({ success: true, profileViews: provider.profileViews });
+//   } catch (error) {
+//     console.error("Error incrementing profile views:", error);
+//     res.status(500).json({ success: false, error: error.message });
+//   }
+// });
+
+
+router.patch("/:id/view", async (req, res) => {
+  try {
+    const providerId = req.params.id;
+    const viewerIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const today = new Date().toISOString().split('T')[0]; // "2026-03-31"
+    const viewKey = `${viewerIp}-${today}`;
+
+    const provider = await Provider.findById(providerId);
+    if (!provider) {
+      return res.status(404).json({ success: false, message: "Provider not found" });
+    }
+
+    // Check if this IP already viewed today
+    if (!provider.recentViewers) provider.recentViewers = [];
+    
+    const alreadyViewed = provider.recentViewers.includes(viewKey);
+    
+    if (!alreadyViewed) {
+      // Add viewer and increment count
+      provider.recentViewers.push(viewKey);
+      provider.profileViews = (provider.profileViews || 0) + 1;
+
+      // Keep recentViewers from growing forever — clean up old entries
+      provider.recentViewers = provider.recentViewers.filter(key => 
+        key.includes(today) // only keep today's entries
+      );
+
+      await provider.save();
+    }
+
+    res.json({ success: true, profileViews: provider.profileViews });
+  } catch (error) {
+    console.error("Error incrementing profile views:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
 
 /* -------------------------------------------------------------------------- */
 /* 🔵 GET SINGLE PROVIDER BY ID */

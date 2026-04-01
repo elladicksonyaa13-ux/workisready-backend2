@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const userActivityLogSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: String,
     ref: 'User',
     required: true,
     index: true

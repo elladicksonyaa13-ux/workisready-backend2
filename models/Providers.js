@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 const providerSchema = new mongoose.Schema(
   {
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "User",
       required: true,
       unique: true, // ✅ One provider profile per user
@@ -143,7 +143,7 @@ profilePic: {
     reviews: [
       {
         userId: {
-          type: mongoose.Schema.Types.ObjectId,
+          type: String,
           ref: "User",
           required: true,
         },
@@ -209,7 +209,16 @@ profilePic: {
       emailNotifications: { type: Boolean, default: true },
       smsNotifications: { type: Boolean, default: true },
       whatsappNotifications: { type: Boolean, default: false }
-    }
+    },
+
+    profileViews: {
+  type: Number,
+  default: 0
+},
+recentViewers: {
+  type: [String],
+  default: []
+}
   },
   { 
     timestamps: true,

@@ -37,6 +37,7 @@ const upload = multer({
 
 // ---------- ROUTES ----------
 
+
 // ✅ GET user’s tasks
 router.get("/user/my-tasks", auth, async (req, res) => {
   try {
@@ -219,7 +220,37 @@ router.get("/search", async (req, res) => {
   }
 });
 
+router.patch('/:id/view', async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const viewerIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const today = new Date().toISOString().split('T')[0]; // "2026-03-31"
+    const viewKey = `${viewerIp}-${today}`;
 
+    const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ success: false });
+
+    if (!task.recentViewers) task.recentViewers = [];
+
+    const alreadyViewed = task.recentViewers.includes(viewKey);
+
+    if (!alreadyViewed) {
+      task.recentViewers.push(viewKey);
+      task.views = (task.views || 0) + 1;
+
+      // Keep only today's viewers — clean up old entries
+      task.recentViewers = task.recentViewers.filter(key =>
+        key.includes(today)
+      );
+
+      await task.save();
+    }
+
+    res.json({ success: true, views: task.views });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ✅ UPDATE task by ID (handle new fields)
 router.put("/:id", auth, upload.array("newImages", 5), async (req, res) => {
@@ -589,7 +620,7 @@ router.get("/", async (req, res) => {
     const [tasks, total] = await Promise.all([
       Task.find(filter)
         .populate("clientId", "name email phone whatsapp")
-        .select('title mainCategory category description region city district location status budget images createdAt dueDate isSuspended')
+        .select('title mainCategory category description region city district location status budget images createdAt dueDate isSuspended views')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit)),
@@ -793,5 +824,8 @@ router.put('/:id/status', auth, async (req, res) => {
 
 // Public route to get promoted tasks for a screen
 router.get('/featured/:screen', taskController.getFeaturedTasks);
+
+
+
 
 export default router;

@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const activityLogSchema = new mongoose.Schema({
   // User who performed the action
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: String,
     ref: 'User',
     required: true,
     index: true
@@ -11,7 +11,7 @@ const activityLogSchema = new mongoose.Schema({
   
   // Target being interacted with
   targetId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: String,
     refPath: 'targetModel',
     required: true,
     index: true

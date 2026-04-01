@@ -8,6 +8,8 @@ import User from "../models/User.js";
 import { googleAuth } from "../controllers/googleAuthController.js";
 import { googleAuthCallback } from "../controllers/googleAuthController.js";
 // import { sendVerificationEmail } from "../controllers/authController.js";
+import { generateCustomUserId } from '../utils/idGenerator.js';
+
 
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -346,6 +348,7 @@ router.post("/login", async (req, res) => {
   message: "Login successful",
   user: {
     id: user._id,
+    userId: user.userId, // ✅ Add custom userId
     name: user.name,
     email: user.email,
     userType: user.userType,
@@ -398,8 +401,13 @@ router.post("/register", async (req, res) => {
       });
     }
 
+    // ✅ Generate custom ID
+    const customId = await generateCustomUserId();
+
     // Create user
     const user = new User({
+      _id: customId, // Use custom ID as _id
+      userId: customId, // Also store in userId field for consistency
       name,
       email,
       password,

@@ -345,7 +345,7 @@ router.get("/admin/search/providers", adminAuth, async (req, res) => {
         category: provider.category,
         location: provider.location,
         rating: provider.rating,
-        services: provider.services.map(s => s.name)
+        services: provider.services.map(s => s.name),
       }))
     });
   } catch (error) {
@@ -375,11 +375,12 @@ router.get("/featured-providers", async (req, res) => {
     if (FeaturedProviderModel) {
       const featuredFromCollection = await FeaturedProviderModel.find({ 
         isActive: true,
+        
         expiresAt: { $gt: new Date() }
       })
       .populate({
         path: 'providerId',
-        select: 'firstName surname businessName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt isApproved',
+        select: 'firstName surname businessName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt isApproved isSuspended profileViews',
         // match: { isApproved: true }
       })
       .sort({ order: 1, createdAt: -1 })
@@ -387,7 +388,7 @@ router.get("/featured-providers", async (req, res) => {
       
       // Filter out null providers and map to consistent format
       featuredProviders = featuredFromCollection
-        .filter(item => item.providerId)
+        .filter(item => item.providerId && item.providerId.isSuspended !== true)
         .map(item => {
           const provider = item.providerId.toObject ? item.providerId.toObject() : item.providerId;
           
@@ -413,6 +414,7 @@ router.get("/featured-providers", async (req, res) => {
       const providersFromFlag = await Provider.find({ 
         isFeatured: true,
         // isApproved: true
+        isSuspended: false,
       })
       .select('firstName surname businessName profilePic city region category skills averageRating reviews hourlyRate bio experience availability phone email createdAt')
       .sort({ createdAt: -1 })

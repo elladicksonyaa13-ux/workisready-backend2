@@ -3,6 +3,8 @@ import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
+import { generateCustomUserId } from '../utils/idGenerator.js';
+
 
 // Initialize Google OAuth client
 const client = new OAuth2Client(
@@ -39,10 +41,13 @@ export const googleAuth = async (req, res) => {
 
     // ✅ Auto-register if not found
     if (!user) {
+      // ✅ Generate custom ID
+      const customId = await generateCustomUserId();
       const randomPassword = Math.random().toString(36).slice(-8) + 
                              Math.random().toString(36).slice(-8);
 
       user = await User.create({
+        _id: customId,
         name,
         email,
         profileImage: picture,
@@ -170,7 +175,9 @@ export const googleAuthCallback = async (req, res) => {
 
     if (!user) {
       const randomPassword = Math.random().toString(36).slice(-8);
+      const customId = await generateCustomUserId();
       user = await User.create({
+        _id: customId,
         name,
         email,
         profileImage: picture,

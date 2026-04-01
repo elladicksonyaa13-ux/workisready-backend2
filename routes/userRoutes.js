@@ -191,6 +191,12 @@ router.get("/stats", auth, async (req, res) => {
     // Count all tasks created by this user
     const totalTasks = await Task.countDocuments({ clientId });
 
+    // Count completed jobs
+    const completedJobs = await Task.countDocuments({ 
+      clientId, 
+      status: "completed" 
+    });
+
     // Count all saved jobs
     const savedJobs = await SavedTask.countDocuments({ userId });
 
@@ -229,6 +235,7 @@ router.get("/stats", auth, async (req, res) => {
       stats: {
         totalTasks,
         savedJobs,
+        completedJobs,
         savedProviders,
         myServices: req.user.services ? req.user.services.length : 0,
         joined: joinedDate,

@@ -33,6 +33,8 @@ import adminLogRoutes from './routes/admin/adminLogs.js';
 import { initializeSocket, sendRealTimeNotification } from './socket.js';
 import notificationService from './services/notificationService.js';
 import userActivityLogsRoutes from './routes/admin/userActivityLogs.js';
+import adminNotificationRoutes from './routes/admin/notificationRoutes.js';
+
 
 
 
@@ -120,6 +122,8 @@ app.use("/api/admin/users", adminUserRoutes);
 app.use("/api/admin/dashboard", dashboardRoutes);
 app.use("/api/admin/subadmins", subadminRoutes);
 app.use("/api/admin/supersubadmins", supersubadminRoutes);
+app.use('/api/admin/notifications', adminNotificationRoutes);
+
 
 
 

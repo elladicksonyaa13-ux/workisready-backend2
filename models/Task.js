@@ -77,7 +77,7 @@ const taskSchema = new mongoose.Schema({
     default: []
   }],
   clientId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: String,
     ref: 'User',
     required: true
   },
@@ -139,6 +139,11 @@ const taskSchema = new mongoose.Schema({
     type: Date,
     default: null, // null means permanent until lifted
   },
+  views: { type: Number, default: 0 },
+  recentViewers: {
+  type: [String],
+  default: []
+},
 }, {
   timestamps: true
 });

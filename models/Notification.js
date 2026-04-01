@@ -4,14 +4,14 @@ import mongoose from 'mongoose';
 const notificationSchema = new mongoose.Schema({
   // Recipient
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: String,
     ref: 'User',
     required: true,
     index: true
   },
   userType: {
     type: String,
-    enum: ['worker', 'client'],
+    enum: ['worker', 'client', 'admin'],
     required: true
   },
 
@@ -26,7 +26,7 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['job', 'worker'],
+    enum: ['job', 'worker', 'admin'],
     required: true
   },
   metadata: {

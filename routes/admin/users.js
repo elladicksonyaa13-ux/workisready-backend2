@@ -3,6 +3,7 @@ import User from "../../models/User.js";
 import { adminAuth } from "../../middleware/auth.js";
 import jwt from "jsonwebtoken";
 import { createAdminLog } from '../../middleware/logAdminActivity.js';
+import { generateCustomUserId } from '../../utils/idGenerator.js';
 
 const router = express.Router();
 
@@ -58,7 +59,11 @@ router.post("/", adminAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: "User already exists" });
     }
 
+    // ✅ Generate custom ID
+      const customId = await generateCustomUserId();
+
     const newUser = new User({
+      _id: customId,
       fname,
       sname,
       email,

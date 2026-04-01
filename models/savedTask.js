@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const savedTaskSchema = new mongoose.Schema(
   {
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       ref: "User",
       required: true,
     },

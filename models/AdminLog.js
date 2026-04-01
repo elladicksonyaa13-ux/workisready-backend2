@@ -27,7 +27,7 @@ const adminLogSchema = new mongoose.Schema({
   },
   entityType: {
     type: String,
-    enum: ['user', 'job', 'worker', 'admin', 'log'],
+    enum: ['user', 'job', 'worker', 'admin', 'log', 'notification'],
     required: true
   },
   entityId: {
@@ -44,12 +44,9 @@ const adminLogSchema = new mongoose.Schema({
     default: null
   },
   details: {
-    before: mongoose.Schema.Types.Mixed,
-    after: mongoose.Schema.Types.Mixed,
-    reason: String,
-    count: Number,
-    filters: mongoose.Schema.Types.Mixed
-  },
+  type: mongoose.Schema.Types.Mixed,  // ← simplest fix
+  default: {}
+},
   ipAddress: {
     type: String,
     default: null
