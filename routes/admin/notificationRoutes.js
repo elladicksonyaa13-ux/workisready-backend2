@@ -1,4 +1,3 @@
-// backend/routes/admin/notificationRoutes.js
 import express from 'express';
 import Notification from '../../models/Notification.js';
 import User from '../../models/User.js';
@@ -16,45 +15,41 @@ router.get('/count', adminAuth, async (req, res) => {
   try {
     const { type, region, district, categories } = req.query;
     let query = { isSuspended: { $ne: true } };
-    
+
     switch (type) {
-      case 'clients':
-        // Clients = users WITHOUT a provider profile
+      case 'clients': {
         const clientProviderIds = await Provider.find({}).distinct('userId');
         query._id = { $nin: clientProviderIds };
         break;
-        
-      case 'workers':
-        // Workers = users WITH a provider profile
+      }
+      case 'workers': {
         const workerUserIds = await Provider.find({ isSuspended: { $ne: true } }).distinct('userId');
         query._id = { $in: workerUserIds };
         break;
-        
-      case 'by_region':
+      }
+      case 'by_region': {
         const regionQuery = { isSuspended: { $ne: true } };
         if (region) regionQuery.region = region;
         if (district) regionQuery.district = district;
-        
         const regionProviders = await Provider.find(regionQuery).distinct('userId');
         query._id = { $in: regionProviders };
         break;
-        
-      case 'by_category':
+      }
+      case 'by_category': {
         if (categories) {
           const categoryList = categories.split(',');
-          const providers = await Provider.find({ 
+          const providers = await Provider.find({
             category: { $in: categoryList },
             isSuspended: { $ne: true }
           }).distinct('userId');
           query._id = { $in: providers };
         }
         break;
-        
+      }
       default:
-        // all users
         break;
     }
-    
+
     const count = await User.countDocuments(query);
     res.json({ success: true, count });
   } catch (error) {
@@ -69,42 +64,41 @@ router.get('/count', adminAuth, async (req, res) => {
 router.post('/send', adminAuth, async (req, res) => {
   try {
     const { type, title, message, region, district, categories } = req.body;
-    
+
     console.log('📨 Sending admin notification:', { type, title, region, district, categoriesCount: categories?.length });
-    
+
     if (!title || !message) {
       return res.status(400).json({ success: false, message: 'Title and message are required' });
     }
-    
+
     let query = { isSuspended: { $ne: true } };
     let userTypeLabel = '';
-    
+
     switch (type) {
-      case 'clients':
+      case 'clients': {
         const clientProviderIds = await Provider.find({}).distinct('userId');
         query._id = { $nin: clientProviderIds };
         userTypeLabel = 'clients';
         break;
-        
-      case 'workers':
+      }
+      case 'workers': {
         const workerUserIds = await Provider.find({ isSuspended: { $ne: true } }).distinct('userId');
         query._id = { $in: workerUserIds };
         userTypeLabel = 'workers';
         break;
-        
-      case 'by_region':
+      }
+      case 'by_region': {
         const regionQuery = { isSuspended: { $ne: true } };
         if (region) regionQuery.region = region;
         if (district) regionQuery.district = district;
-        
         const regionProviders = await Provider.find(regionQuery).distinct('userId');
         query._id = { $in: regionProviders };
         userTypeLabel = `users in ${region}${district ? `, ${district}` : ''}`;
         break;
-        
-      case 'by_category':
+      }
+      case 'by_category': {
         if (categories && categories.length > 0) {
-          const providers = await Provider.find({ 
+          const providers = await Provider.find({
             category: { $in: categories },
             isSuspended: { $ne: true }
           }).distinct('userId');
@@ -116,37 +110,46 @@ router.post('/send', adminAuth, async (req, res) => {
           userTypeLabel = 'all workers';
         }
         break;
-        
+      }
       default:
         userTypeLabel = 'all users';
         break;
     }
-    
+
     console.log('🔍 Query:', JSON.stringify(query));
-    
-    const users = await User.find(query).select('_id name email deviceTokens region district');
-    
+
+    // ✅ Select pushToken in addition to deviceTokens
+    const users = await User.find(query)
+      .select('_id name email pushToken pushTokenPlatform deviceTokens region district');
+
     console.log(`👥 Found ${users.length} ${userTypeLabel}`);
-    
+
     if (users.length === 0) {
       return res.status(400).json({ success: false, message: 'No recipients found' });
     }
-    
-    // Collect Expo tokens
-    const expoTokens = [];
+
+    // ✅ Collect tokens from both pushToken and deviceTokens
+    const expoTokensRaw = [];
     for (const user of users) {
+      // Primary: single pushToken field
+      if (user.pushToken) {
+        expoTokensRaw.push(user.pushToken);
+      }
+      // Fallback: deviceTokens array
       if (user.deviceTokens?.length > 0) {
         const tokens = user.deviceTokens
-          .filter(t => t.type === 'expo' && t.token)
+          .filter(t => t.token)
           .map(t => t.token);
-        expoTokens.push(...tokens);
+        expoTokensRaw.push(...tokens);
       }
     }
-    
-    console.log(`📱 Found ${expoTokens.length} Expo tokens`);
-    
+
+    // Remove duplicates
+    const expoTokens = [...new Set(expoTokensRaw)];
+    console.log(`📱 Found ${expoTokens.length} unique push tokens for ${users.length} users`);
+
     let sentCount = 0;
-    
+
     if (expoTokens.length > 0) {
       try {
         const chunkSize = 100;
@@ -157,47 +160,47 @@ router.post('/send', adminAuth, async (req, res) => {
             message,
             type: 'admin',
           });
-          
-          if (result?.data?.status === 'ok') {
-            sentCount += chunk.length;
+          // Expo returns array of results, count successful ones
+          if (result?.data) {
+            const results = Array.isArray(result.data) ? result.data : [result.data];
+            sentCount += results.filter(r => r.status === 'ok').length;
           }
         }
         console.log(`✅ Sent to ${sentCount} devices`);
-      } catch (error) {
-        console.error('Error sending push notifications:', error);
+      } catch (pushError) {
+        console.error('Error sending push notifications:', pushError);
       }
     }
-    
-    // Save notifications to database
+
+    // ✅ Save notifications to database with correct schema fields
     const notifications = users.map(user => ({
       userId: user._id,
       title,
       message,
-      type: 'job',         // ← use a valid enum value, or add 'admin' to your schema
-      userType: 'client',  // ← derive this properly, or add 'admin' to schema
-      type: 'admin',
+      type: 'admin',      // ✅ make sure 'admin' is in your Notification schema enum
+      userType: 'client', // ✅ make sure 'admin' or 'client' fits your schema
       color: 'blue',
       isRead: false,
       metadata: {
-        sentBy: req.admin?._id || req.admin?.id,
-        sentByAdmin: req.admin?.name || req.adminName,
+        sentBy: req.admin?._id,
+        sentByAdmin: req.admin?.name,
         notificationType: type,
         region: region || null,
         district: district || null,
         categories: categories || null,
       },
     }));
-    
+
     await Notification.insertMany(notifications);
     console.log(`✅ Saved ${notifications.length} notifications to database`);
-    
-    // ✅ Save Admin Log with correct structure
+
+    // ✅ Save Admin Log
     try {
       await AdminLog.create({
-        adminId: req.admin?._id || req.admin?.id,
-        adminName: req.admin?.name || req.adminName,
-        adminEmail: req.admin?.email || req.adminEmail,
-        adminRole: req.admin?.role || req.adminRole,
+        adminId: req.admin?._id,
+        adminName: req.admin?.name,
+        adminEmail: req.admin?.email,
+        adminRole: req.admin?.role,
         action: 'SEND_NOTIFICATION',
         entityType: 'notification',
         details: {
@@ -210,29 +213,24 @@ router.post('/send', adminAuth, async (req, res) => {
           district: district || null,
           categories: categories || null,
         },
-        // Optional: add IP and user agent if available
         ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
         userAgent: req.headers['user-agent'] || null,
       });
       console.log('✅ Admin log saved');
     } catch (logError) {
       console.error('Error saving admin log:', logError.message);
-      // Don't fail the request if logging fails
     }
-    
+
     res.json({
       success: true,
       sentCount: users.length,
       pushSentCount: sentCount,
       message: `Notification sent to ${users.length} users`,
     });
-    
+
   } catch (error) {
     console.error('❌ Error sending notification:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -244,22 +242,21 @@ router.get('/history', adminAuth, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
-    
-    // Get from AdminLog table
+
     const adminLogs = await AdminLog.find({ action: 'SEND_NOTIFICATION' })
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
-    
+
     const notifications = adminLogs.map(log => ({
       _id: log._id,
       title: log.details?.title || 'Admin Notification',
       message: log.details?.message || '',
       recipients: {
         count: log.details?.recipientCount || 0,
-        userTypes: log.details?.type === 'clients' ? ['clients'] : 
-                   log.details?.type === 'workers' ? ['workers'] : 
+        userTypes: log.details?.type === 'clients' ? ['clients'] :
+                   log.details?.type === 'workers' ? ['workers'] :
                    log.details?.type === 'by_region' ? ['by region'] :
                    log.details?.type === 'by_category' ? ['by category'] : ['all users'],
         regions: log.details?.region ? [log.details.region] : [],
@@ -271,13 +268,13 @@ router.get('/history', adminAuth, async (req, res) => {
         email: log.adminEmail,
       },
       sentAt: log.timestamp || log.createdAt,
-      status: log.details?.pushSentCount > 0 ? 'sent' : 'sent', // Default to sent
+      status: 'sent',
       successCount: log.details?.pushSentCount || log.details?.recipientCount || 0,
       failureCount: 0,
     }));
-    
+
     const total = await AdminLog.countDocuments({ action: 'SEND_NOTIFICATION' });
-    
+
     res.json({
       success: true,
       notifications,

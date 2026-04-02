@@ -517,6 +517,33 @@ try {
   }
 });
 
+// POST /api/users/device-token
+// Saves Expo push token to user profile
+router.post('/device-token', auth, async (req, res) => {
+  try {
+    const { token, platform } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Token is required' });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      pushToken: token,
+      pushTokenPlatform: platform,
+      pushTokenUpdatedAt: new Date(),
+    });
+
+    console.log(`✅ Push token saved for user ${req.user._id}: ${token.substring(0, 30)}...`);
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('❌ Error saving device token:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
+
 // routes/users.js
 router.post('/push-token', auth, async (req, res) => {
   try {
