@@ -375,7 +375,7 @@ router.post("/login", async (req, res) => {
 // ✅ UPDATE REGISTRATION TO SEND RESPONSE IMMEDIATELY
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, phone, whatsapp } = req.body;
 
     console.log("📝 Registration attempt for:", email);
 
@@ -413,6 +413,16 @@ router.post("/register", async (req, res) => {
       password,
     });
 
+    // Only add phone if it exists and is not empty
+    if (phone && phone.trim() !== '') {
+      userData.phone = phone;
+    }
+
+    // Only add whatsapp if it exists and is not empty
+    if (whatsapp && whatsapp.trim() !== '') {
+      userData.whatsapp = whatsapp;
+    }
+
     const verificationToken = user.generateVerificationToken();
     await user.save();
     console.log("✅ User created:", user._id);
@@ -440,64 +450,7 @@ router.post("/register", async (req, res) => {
       token: token,
     });
 
-    // ✅ SEND EMAIL IN THE BACKGROUND (don't await)
-    // This won't block the response
-    // try {
-    //   const transporter = nodemailer.createTransport({
-    //     host: process.env.EMAIL_HOST || "smtp.gmail.com",
-    //     port: process.env.EMAIL_PORT || 587,
-    //     secure: process.env.EMAIL_SECURE === "true",
-    //     auth: {
-    //       user: process.env.EMAIL_USER,
-    //       pass: process.env.EMAIL_PASS,
-    //     },
-    //   });
 
-    //   const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${verificationToken}`;
-      
-    //   await transporter.sendMail({
-    //     from: `"WorkisReady" <${process.env.EMAIL_USER}>`,
-    //     to: email,
-    //     subject: "Verify Your WorkisReady Account",
-    //     html: `
-    //       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-    //         <div style="text-align: center; background-color: #0099CC; color: white; padding: 20px; border-radius: 10px 10px 0 0;">
-    //           <h1>WorkIsReady</h1>
-    //         </div>
-    //         <div style="padding: 30px; background-color: #f9f9f9; border-radius: 0 0 10px 10px;">
-    //           <h2 style="color: #0099CC;">Welcome to WorkisReady!</h2>
-    //           <p>Hello <strong>${name}</strong>,</p>
-    //           <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
-              
-    //           <div style="text-align: center; margin: 30px 0;">
-    //             <a href="${verificationUrl}" 
-    //               style="background-color: #0099CC; color: white; padding: 12px 30px; 
-    //                     text-decoration: none; border-radius: 5px; font-weight: bold;
-    //                     display: inline-block;">
-    //               Verify Email Address
-    //             </a>
-    //           </div>
-              
-    //           <p>Or copy and paste this link in your browser:</p>
-    //           <div style="word-break: break-all; color: #666; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #ddd; margin: 15px 0;">
-    //             ${verificationUrl}
-    //           </div>
-              
-    //           <p>This verification link will expire in 24 hours.</p>
-    //           <p>If you didn't create an account with WorkisReady, please ignore this email.</p>
-              
-    //           <p>Best regards,<br>The WorkisReady Team</p>
-    //         </div>
-    //       </div>
-    //     `,
-    //   });
-      
-    //   console.log("✅ Verification email sent to:", email);
-    // } catch (emailError) {
-    //   // Log email error but don't affect the response
-    //   console.error("❌ Failed to send verification email:", emailError);
-    // }
-    // ✅ SEND EMAIL IN THE BACKGROUND (don't await)
 try {
   const verificationUrl = `${process.env.API_URL}/api/auth/verify-email/${verificationToken}`;
   
@@ -517,7 +470,7 @@ try {
           
           <div style="text-align: center; margin: 30px 0;">
             <a href="${verificationUrl}" 
-              style="background-color: #0099CC; color: white; padding: 12px 30px; 
+              style="background-color: #0099CC; color: white; padding: 20px 90px; 
                     text-decoration: none; border-radius: 5px; font-weight: bold;
                     display: inline-block;">
               Verify Email Address
@@ -565,32 +518,6 @@ try {
 });
 
    
-
-//     res.status(201).json({
-//       success: true,
-//       message: "Registration successful! Please check your email to verify your account.",
-//       user: userResponse,
-//       token: token,
-//       // Include direct link in response for debugging
-//       verificationLink: verificationUrl,
-//     });
-
-//   } catch (error) {
-//     console.error("❌ Registration error:", error);
-    
-//     if (error.code === 11000) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "User already exists with this email",
-//       });
-//     }
-    
-//     res.status(500).json({
-//       success: false,
-//       message: "Server error during registration: " + error.message,
-//     });
-//   }
-// });
 
 // Test route to check if user model works
 router.post("/test-password", async (req, res) => {
