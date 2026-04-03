@@ -34,6 +34,8 @@ import { initializeSocket, sendRealTimeNotification } from './socket.js';
 import notificationService from './services/notificationService.js';
 import userActivityLogsRoutes from './routes/admin/userActivityLogs.js';
 import adminNotificationRoutes from './routes/admin/notificationRoutes.js';
+import bannerRoutes from './routes/admin/bannerRoutes.js';
+
 
 
 
@@ -109,6 +111,7 @@ app.use("/api/admin/admin-logs", adminLogRoutes);
 app.use('/api/admin/logs', adminLogsRoutes);
 
 app.use('/api/admin/user-activity-logs', userActivityLogsRoutes);
+app.use('/api/admin/banners', bannerRoutes);
 
 // Admin routes
 app.use("/api/admin", AdminRoutes);
